@@ -10,7 +10,7 @@ def get_user(username):
             'name': user.name,
             'totp_secret': user.totp_secret,
             'is_admin': user.is_admin,
-            'password': user.password_hash
+            'is_super_admin': user.is_super_admin
         }
     return None
 
@@ -22,24 +22,36 @@ def verify_password(username, password):
     return False
 
 def is_admin(username):
-    """检查用户是否为管理员"""
+    """检查用户是否为管理员（包括子管理员和超级管理员）"""
     user = User.query.filter_by(username=username).first()
     return user is not None and user.is_admin
 
+def is_super_admin(username):
+    """检查用户是否为超级管理员（内置管理员）"""
+    user = User.query.filter_by(username=username).first()
+    return user is not None and user.is_super_admin
+
 def add_user(username, user_data):
     """添加新用户"""
+    is_admin = user_data.get('is_admin', False)
+    is_super_admin = user_data.get('is_super_admin', False)
+    
     user = User(
         username=username,
         name=user_data.get('name', ''),
-        totp_secret=user_data.get('totp_secret', ''),
-        is_admin=user_data.get('is_admin', False)
+        totp_secret=user_data.get('totp_secret'),
+        is_admin=is_admin,
+        is_super_admin=is_super_admin
     )
     
-    # 如果提供了密码，设置密码哈希
-    if 'password' in user_data and user_data['password']:
-        user.set_password(user_data['password'])
+    # 管理员必须设置密码
+    if is_admin or is_super_admin:
+        password = user_data.get('password', '')
+        if not password:
+            raise ValueError('管理员必须设置密码')
+        user.set_password(password)
     else:
-        # 设置一个空密码哈希，后续需要重置
+        # 普通用户设置空密码（使用TOTP验证）
         user.set_password('')
     
     db.session.add(user)
@@ -58,6 +70,8 @@ def update_user(username, user_data):
         user.totp_secret = user_data['totp_secret']
     if 'is_admin' in user_data:
         user.is_admin = user_data['is_admin']
+    if 'is_super_admin' in user_data:
+        user.is_super_admin = user_data['is_super_admin']
     if 'password' in user_data:
         user.set_password(user_data['password'])
     
@@ -87,6 +101,6 @@ def get_all_users():
             'name': user.name,
             'totp_secret': user.totp_secret,
             'is_admin': user.is_admin,
-            'password': user.password_hash or ''
+            'is_super_admin': user.is_super_admin
         }
     return result

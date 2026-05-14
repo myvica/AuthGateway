@@ -1,39 +1,23 @@
-﻿import sys
-import os
 from flask import Flask, render_template, request, redirect, url_for, session, make_response, flash, jsonify
 import pyotp
 import requests
 import base64
-import logging
 from functools import wraps
 from urllib.parse import urljoin
-
-# Ensure project root directory is in Python path
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 from config import Config
 from users import (
-    get_user, verify_password, is_admin, add_user,
+    get_user, verify_password, is_admin, is_super_admin, add_user, 
     update_user, delete_user, get_all_users
 )
 from generate_totp import generate_totp_secret, generate_qr_code
 from captcha import generate_captcha_text, generate_captcha_image
 from database import init_db
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = Config.SECRET_KEY
 
-# Initialize database
+# 初始化数据库
 init_db(app)
 
 def is_authenticated():
@@ -42,17 +26,12 @@ def is_authenticated():
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        try:
-            if not is_authenticated():
-                return redirect(url_for('admin_login'))
-            if not is_admin(session.get('username')):
-                flash('您没有权限访问此页面', 'error')
-                return redirect(url_for('user_login'))
-            return f(*args, **kwargs)
-        except Exception as e:
-            logger.error(f'Permission check failed: {e}', exc_info=True)
-            flash('系统错误，请稍后重试', 'error')
+        if not is_authenticated():
             return redirect(url_for('admin_login'))
+        if not is_admin(session.get('username')):
+            flash('您没有权限访问此页面', 'error')
+            return redirect(url_for('user_login'))
+        return f(*args, **kwargs)
     return decorated_function
 
 @app.route('/', methods=['GET', 'POST'])
@@ -131,91 +110,92 @@ def logout():
 @app.route('/admin')
 @admin_required
 def admin():
-    try:
-        users = get_all_users()
-        return render_template('admin.html', users=users)
-    except Exception as e:
-        logger.error(f'Failed to load admin page: {e}', exc_info=True)
-        flash('加载用户列表失败，请稍后重试', 'error')
-        return redirect(url_for('admin_login'))
+    users = get_all_users()
+    return render_template('admin.html', users=users)
 
 @app.route('/admin/users', methods=['POST'])
 @admin_required
 def create_user():
-    try:
-        username = request.form.get('username', '').strip()
-        name = request.form.get('name', '').strip()
-        
-        if not username or not name:
-            flash('请填写所有必填字段', 'error')
-            return redirect(url_for('admin'))
-        
-        if get_user(username):
-            flash('用户名已存在', 'error')
-            return redirect(url_for('admin'))
-        
-        secret = generate_totp_secret()
-        
-        user_data = {
-            'password': '',
-            'totp_secret': secret,
-            'name': name,
-            'is_admin': False
-        }
-        
-        add_user(username, user_data)
-        logger.info(f'User {username} added to database')
-        
-        qr_base64, _ = generate_qr_code(username, secret)
-        logger.info(f'TOTP QR code generated for user {username}')
-        
+    username = request.form.get('username', '').strip()
+    name = request.form.get('name', '').strip()
+    password = request.form.get('password', '').strip()
+    is_sub_admin = request.form.get('is_sub_admin', '0') == '1'
+    current_user = session.get('username')
+    
+    if not username or not name:
+        flash('请填写所有必填字段', 'error')
+        return redirect(url_for('admin'))
+    
+    if get_user(username):
+        flash('用户名已存在', 'error')
+        return redirect(url_for('admin'))
+    
+    if is_sub_admin and not is_super_admin(current_user):
+        flash('只有超级管理员可以创建子管理员', 'error')
+        return redirect(url_for('admin'))
+    
+    if is_sub_admin and not password:
+        flash('创建子管理员必须设置密码', 'error')
+        return redirect(url_for('admin'))
+    
+    user_data = {
+        'password': password,
+        'totp_secret': generate_totp_secret() if not is_sub_admin else None,
+        'name': name,
+        'is_admin': is_sub_admin,
+        'is_super_admin': False
+    }
+    
+    add_user(username, user_data)
+    
+    if is_sub_admin:
+        flash(f'子管理员 {username} 创建成功', 'success')
+        return redirect(url_for('admin'))
+    else:
+        qr_base64, _ = generate_qr_code(username, user_data['totp_secret'])
         flash(f'用户 {username} 创建成功', 'success')
-        
         return render_template('admin.html', 
                              users=get_all_users(),
                              new_user_qr=qr_base64,
-                             new_user_secret=secret,
+                             new_user_secret=user_data['totp_secret'],
                              new_user_username=username)
-    except Exception as e:
-        logger.error(f'Failed to create user: {e}', exc_info=True)
-        flash(f'创建用户时发生错误: {str(e)}', 'error')
-        return redirect(url_for('admin'))
 
 @app.route('/admin/users/<username>', methods=['DELETE'])
 @admin_required
 def delete_user_route(username):
-    try:
-        if username == 'admin':
-            return jsonify({'error': '不能删除管理员账户'}), 400
-        
-        if delete_user(username):
-            return jsonify({'success': True})
+    current_user = session.get('username')
+    
+    if username == 'admin':
+        return jsonify({'error': '不能删除内置管理员'}), 400
+    
+    target_user = get_user(username)
+    if not target_user:
         return jsonify({'error': '用户不存在'}), 404
-    except Exception as e:
-        logger.error(f'Failed to delete user {username}: {e}', exc_info=True)
-        return jsonify({'error': f'删除用户失败: {str(e)}'}), 500
+    
+    if target_user.get('is_admin') and not is_super_admin(current_user):
+        return jsonify({'error': '只有超级管理员可以删除管理员账户'}), 403
+    
+    if delete_user(username):
+        return jsonify({'success': True})
+    return jsonify({'error': '删除失败'}), 400
 
 @app.route('/admin/users/<username>/totp', methods=['POST'])
 @admin_required
 def reset_totp(username):
-    try:
-        user = get_user(username)
-        if not user:
-            return jsonify({'error': '用户不存在'}), 404
-        
-        new_secret = generate_totp_secret()
-        update_user(username, {'totp_secret': new_secret})
-        
-        qr_base64, _ = generate_qr_code(username, new_secret)
-        
-        return jsonify({
-            'success': True,
-            'secret': new_secret,
-            'qr_code': f'data:image/png;base64,{qr_base64}'
-        })
-    except Exception as e:
-        logger.error(f'Failed to reset TOTP for {username}: {e}', exc_info=True)
-        return jsonify({'error': f'重置密钥失败: {str(e)}'}), 500
+    user = get_user(username)
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+    
+    new_secret = generate_totp_secret()
+    update_user(username, {'totp_secret': new_secret})
+    
+    qr_base64, _ = generate_qr_code(username, new_secret)
+    
+    return jsonify({
+        'success': True,
+        'secret': new_secret,
+        'qr_code': f'data:image/png;base64,{qr_base64}'
+    })
 
 @app.route('/cms', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
 @app.route('/cms/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
@@ -242,7 +222,7 @@ def proxy(path):
         elif request.method == 'PUT':
             resp = requests.put(target_url, headers=headers, data=request.get_data(), cookies=request.cookies, timeout=30)
         elif request.method == 'DELETE':
-            resp = requests.delete(target_url, headers=headers, data=request.get_data(), cookies=request.cookies, timeout=30)
+            resp = requests.delete(target_url, headers=headers, cookies=request.cookies, timeout=30)
         else:
             resp = requests.request(request.method, target_url, headers=headers, data=request.get_data(), cookies=request.cookies, timeout=30)
         
@@ -256,11 +236,6 @@ def proxy(path):
         
     except requests.exceptions.RequestException as e:
         return f'无法连接到CMS系统: {str(e)}', 502
-
-@app.errorhandler(500)
-def internal_server_error(e):
-    logger.error(f'Internal server error: {e}', exc_info=True)
-    return render_template('login.html', error='服务器内部错误，请联系管理员'), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=Config.DEBUG)

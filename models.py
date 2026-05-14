@@ -10,9 +10,10 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256), nullable=False)
-    totp_secret = db.Column(db.String(32), nullable=False)
+    totp_secret = db.Column(db.String(32), nullable=True)
     name = db.Column(db.String(100), nullable=False)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_super_admin = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -30,6 +31,7 @@ class User(db.Model):
             'username': self.username,
             'name': self.name,
             'is_admin': self.is_admin,
+            'is_super_admin': self.is_super_admin,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

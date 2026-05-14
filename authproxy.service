@@ -1,11 +1,11 @@
 [Unit]
-Description=2FA Gateway
+Description=2FA 反向代理网关
 After=network.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
+User=www
+Group=www
 WorkingDirectory=/opt/AuthProxy
 Environment="PATH=/opt/AuthProxy/venv/bin"
 ExecStart=/opt/AuthProxy/venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 app:app

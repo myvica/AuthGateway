@@ -134,8 +134,13 @@
             font-weight: 500;
         }
         
-        .badge-admin {
-            background: #667eea;
+        .badge-super-admin {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .badge-sub-admin {
+            background: #3498db;
             color: white;
         }
         
@@ -223,6 +228,46 @@
             border-color: #667eea;
         }
         
+        .form-group .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+        
+        .form-group .checkbox-label input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+        
+        .tab-container {
+            display: flex;
+            border: 2px solid #e1e1e1;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 12px 20px;
+            text-align: center;
+            cursor: pointer;
+            background: #f8f9fa;
+            color: #666;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            background: #e9ecef;
+        }
+        
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
         .alert {
             padding: 12px 15px;
             border-radius: 6px;
@@ -289,7 +334,7 @@
     <div class="container">
         <div class="header">
             <h2>用户列表</h2>
-            <button class="btn btn-primary" onclick="openModal()">+ 新增用户</button>
+            <button class="btn btn-primary" onclick="openModal()">+ 新增账号</button>
         </div>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -337,19 +382,23 @@
                         <td>{{ username }}</td>
                         <td>{{ user.name }}</td>
                         <td>
-                            {% if user.is_admin %}
-                            <span class="badge badge-admin">管理员</span>
+                            {% if user.is_super_admin %}
+                            <span class="badge badge-super-admin">超级管理员</span>
+                            {% elif user.is_admin %}
+                            <span class="badge badge-sub-admin">子管理员</span>
                             {% else %}
                             <span class="badge badge-user">普通用户</span>
                             {% endif %}
                         </td>
                         <td>
                             <div class="actions">
-                                {% if not user.is_admin %}
-                                <button class="btn btn-secondary btn-sm" onclick="resetTotp('{{ username }}')">重置密钥</button>
+                                {% if user.is_super_admin %}
+                                <span style="color: #999; font-size: 12px;">内置账户</span>
+                                {% elif user.is_admin %}
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser('{{ username }}')">删除</button>
                                 {% else %}
-                                <span style="color: #999; font-size: 12px;">管理员账户不可操作</span>
+                                <button class="btn btn-secondary btn-sm" onclick="resetTotp('{{ username }}')">重置密钥</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteUser('{{ username }}')">删除</button>
                                 {% endif %}
                             </div>
                         </td>
@@ -375,10 +424,17 @@
     <div class="modal" id="userModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>新增用户</h3>
+                <h3 id="modalTitle">新增账号</h3>
             </div>
             <form id="userForm" method="POST" action="/admin/users">
                 <div class="modal-body">
+                    <div class="form-group">
+                        <div class="tab-container">
+                            <div class="tab active" id="tabUser" onclick="switchTab('user')">新增用户</div>
+                            <div class="tab" id="tabSubAdmin" onclick="switchTab('subadmin')">子管理员</div>
+                        </div>
+                        <input type="hidden" id="is_sub_admin" name="is_sub_admin" value="0">
+                    </div>
                     <div class="form-group">
                         <label for="username">用户名 *</label>
                         <input type="text" id="username" name="username" required placeholder="请输入用户名">
@@ -386,6 +442,10 @@
                     <div class="form-group">
                         <label for="name">姓名 *</label>
                         <input type="text" id="name" name="name" required placeholder="请输入姓名">
+                    </div>
+                    <div class="form-group" id="passwordField" style="display: none;">
+                        <label for="password">密码 *</label>
+                        <input type="password" id="password" name="password" placeholder="请输入子管理员密码">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -426,6 +486,33 @@
         function closeModal() {
             document.getElementById('userModal').classList.remove('active');
             document.getElementById('userForm').reset();
+            document.getElementById('passwordField').style.display = 'none';
+            document.getElementById('is_sub_admin').value = '0';
+            document.getElementById('tabUser').classList.add('active');
+            document.getElementById('tabSubAdmin').classList.remove('active');
+            document.getElementById('password').required = false;
+        }
+        
+        function switchTab(type) {
+            var tabUser = document.getElementById('tabUser');
+            var tabSubAdmin = document.getElementById('tabSubAdmin');
+            var isSubAdmin = document.getElementById('is_sub_admin');
+            var passwordField = document.getElementById('passwordField');
+            var passwordInput = document.getElementById('password');
+            
+            if (type === 'user') {
+                tabUser.classList.add('active');
+                tabSubAdmin.classList.remove('active');
+                isSubAdmin.value = '0';
+                passwordField.style.display = 'none';
+                passwordInput.required = false;
+            } else {
+                tabUser.classList.remove('active');
+                tabSubAdmin.classList.add('active');
+                isSubAdmin.value = '1';
+                passwordField.style.display = 'block';
+                passwordInput.required = true;
+            }
         }
         
         function closeTotpModal() {
@@ -441,7 +528,9 @@
                     if (response.ok) {
                         window.location.reload();
                     } else {
-                        alert('删除失败');
+                        response.json().then(data => {
+                            alert(data.error || '删除失败');
+                        });
                     }
                 });
             }

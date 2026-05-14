@@ -22,9 +22,9 @@ def init_db(app):
         if User.query.filter_by(username='admin').first() is None:
             admin = User(
                 username='admin',
-                name='管理员',
+                name='内置管理员',
                 is_admin=True,
-                totp_secret='JBSWY3DPEHPK3PXP'
+                is_super_admin=True
             )
             admin.set_password('admin123')
             db.session.add(admin)
