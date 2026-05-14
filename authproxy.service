@@ -1,5 +1,5 @@
 [Unit]
-Description=2FA 反向代理网关
+Description=2FA Gateway
 After=network.target
 
 [Service]
