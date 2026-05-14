@@ -87,6 +87,6 @@ def get_all_users():
             'name': user.name,
             'totp_secret': user.totp_secret,
             'is_admin': user.is_admin,
-            'password': user.password_hash
+            'password': user.password_hash or ''
         }
     return result

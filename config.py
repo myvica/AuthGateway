@@ -27,3 +27,16 @@ class Config:
         project_dir = os.path.dirname(os.path.abspath(__file__))
         abs_db_path = os.path.join(project_dir, db_path)
         SQLALCHEMY_DATABASE_URI = f'sqlite:///{abs_db_path}'
+    
+    # 数据库引擎选项：连接池配置、字符集等
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,          # 每次使用连接前检查是否存活，防止连接过期
+        'pool_recycle': 3600,           # 一小时后回收连接，避免MySQL wait_timeout问题
+    }
+    
+    # 如果是 MySQL/MariaDB，指定字符集为 utf8mb4
+    if 'mysql' in DATABASE_URL or 'mariadb' in DATABASE_URL:
+        SQLALCHEMY_ENGINE_OPTIONS['connect_args'] = {
+            'charset': 'utf8mb4',
+            'use_unicode': True,
+        }
