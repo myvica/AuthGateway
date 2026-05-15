@@ -360,8 +360,9 @@ def reset_totp(username):
 @app.route('/<prefix>', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], strict_slashes=False)
 @app.route('/<prefix>/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], strict_slashes=False)
 def proxy(prefix, path):
-    print(f"[PROXY] 函数被调用: prefix={prefix}, path={path}")
-    
+    if prefix == 'static':
+        return app.send_static_file(path) if path else ('Not Found', 404)
+
     if logger:
         logger.debug(f"代理请求: prefix={prefix}, path={path}, method={request.method}")
     
