@@ -43,11 +43,11 @@ function deleteUser(username) {
     if (confirm('确定要删除用户 ' + username + ' 吗？此操作不可恢复。')) {
         fetch('/admin/users/' + username, {
             method: 'DELETE'
-        }).then(response => {
+        }).then(function(response) {
             if (response.ok) {
                 window.location.reload();
             } else {
-                response.json().then(data => {
+                response.json().then(function(data) {
                     alert(data.error || '删除失败');
                 });
             }
@@ -59,8 +59,8 @@ function resetTotp(username) {
     if (confirm('确定要重置 ' + username + ' 的 TOTP 密钥吗？用户需要重新配置验证器。')) {
         fetch('/admin/users/' + username + '/totp', {
             method: 'POST'
-        }).then(response => response.json())
-        .then(data => {
+        }).then(function(response) { return response.json(); })
+        .then(function(data) {
             document.getElementById('qrCodeContainer').innerHTML =
                 '<img src="' + data.qr_code + '" alt="QR Code">';
             document.getElementById('secretKey').textContent = data.secret;
