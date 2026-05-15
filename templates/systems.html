@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>内网系统列表</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 500px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .user-info {
+            background: #f0f7ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 0 6px 6px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .user-info span {
+            color: #333;
+            font-size: 14px;
+        }
+        
+        .logout-link {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .logout-link:hover {
+            text-decoration: underline;
+        }
+        
+        .system-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .system-card {
+            background: #f8f9fa;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        
+        .system-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2);
+        }
+        
+        .system-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .system-name {
+            color: #333;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .system-prefix {
+            background: #667eea;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .system-url {
+            color: #888;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>内网系统</h1>
+            <p>请选择要访问的系统</p>
+        </div>
+        
+        <div class="user-info">
+            <span>欢迎，{{ username }}</span>
+            <a href="/logout" class="logout-link">退出登录</a>
+        </div>
+        
+        <div class="system-list">
+            {% for system in systems %}
+            <a href="/{{ system.prefix }}/" class="system-card">
+                <div class="system-card-header">
+                    <span class="system-name">{{ system.name }}</span>
+                    <span class="system-prefix">/{{ system.prefix }}</span>
+                </div>
+                <div class="system-url">{{ system.base_url }}</div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

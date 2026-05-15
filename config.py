@@ -3,11 +3,27 @@ import os
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-change-this-in-production'
     
-    CMS_BASE_URL = 'http://htims.xxx.ht'
+    # 多系统配置
+    SYSTEMS = [
+        {
+            "prefix": "cms",
+            "base_url": "http://htims.xxx.ht",
+            "name": "CMS系统"
+        }
+    ]
     
     SESSION_TIMEOUT = 3600
     
-    DEBUG = False
+    DEBUG = True
+    
+    # 日志配置
+    LOG_ENABLED = True
+    LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    LOG_FILE = os.path.join(LOG_DIR, 'proxy.log')
+    
+    # 服务配置
+    HOST = '0.0.0.0'
+    PORT = 5000
     
     # 数据库配置
     # 默认使用 SQLite，可通过环境变量切换到 MariaDB/MySQL
