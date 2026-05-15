@@ -68,7 +68,39 @@ function resetTotp(username) {
         });
     }
 }
+function editName(username, currentName) {
+	document.getElementById('editUsername').value = username;
+	document.getElementById('editName').value = currentName;
+	document.getElementById('editNameModal').classList.add('active');
+}
 
+function closeEditNameModal() {
+	document.getElementById('editNameModal').classList.remove('active');
+	document.getElementById('editNameForm').reset();
+}
+
+document.getElementById('editNameForm').addEventListener('submit', function(e) {
+	e.preventDefault();
+	var username = document.getElementById('editUsername').value;
+	var name = document.getElementById('editName').value;
+	
+	fetch('/admin/users/' + username + '/name', {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ name: name })
+	}).then(response => {
+		if (response.ok) {
+			window.location.reload();
+		} else {
+			response.json().then(data => {
+				alert(data.error || '修改失败');
+			});
+		}
+	});
+});
+        
 document.querySelectorAll('.modal').forEach(function(modal) {
     modal.addEventListener('click', function(e) {
         if (e.target === this && this.id === 'userModal') {

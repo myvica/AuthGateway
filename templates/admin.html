@@ -80,8 +80,10 @@
                                 {% if user.is_super_admin %}
                                 <span style="color: #999; font-size: 12px;">内置账户</span>
                                 {% elif user.is_admin %}
+                                <button class="btn btn-secondary btn-sm" onclick="editName('{{ username }}', '{{ user.name }}')">编辑姓名</button>
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser('{{ username }}')">删除</button>
                                 {% else %}
+                                <button class="btn btn-secondary btn-sm" onclick="editName('{{ username }}', '{{ user.name }}')">编辑姓名</button>
                                 <button class="btn btn-secondary btn-sm" onclick="resetTotp('{{ username }}')">重置密钥</button>
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser('{{ username }}')">删除</button>
                                 {% endif %}
@@ -135,6 +137,28 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 编辑姓名模态框 -->
+    <div class="modal" id="editNameModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>编辑姓名</h3>
+            </div>
+            <form id="editNameForm">
+                <div class="modal-body">
+                    <input type="hidden" id="editUsername" name="username">
+                    <div class="form-group">
+                        <label for="editName">姓名 *</label>
+                        <input type="text" id="editName" name="name" required placeholder="请输入姓名">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditNameModal()">取消</button>
                     <button type="submit" class="btn btn-primary">保存</button>
                 </div>
             </form>
