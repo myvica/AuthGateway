@@ -1,11 +1,11 @@
-# CMS 2FA 反向代理网关
+# AuthGateway 认证网关
 
-这是一个基于 Flask 的反向代理网关，为内网 CMS 系统提供 TOTP 双因素认证保护。
+这是一个基于 Flask 的认证网关，为内网系统提供 TOTP 双因素认证保护。
 
 ## 项目结构
 
 ```
-AuthProxy/
+AuthGateway/
 ├── app.py                 # 主应用文件
 ├── config.py              # 配置文件（含数据库配置）
 ├── database.py            # 数据库初始化
@@ -14,7 +14,7 @@ AuthProxy/
 ├── captcha.py             # 图形验证码生成
 ├── generate_totp.py       # TOTP 密钥生成工具
 ├── requirements.txt       # Python 依赖
-├── authproxy.service      # systemd 服务文件（生产环境）
+├── authgateway.service    # systemd 服务文件（生产环境）
 ├── data/
 │   └── auth.db            # SQLite 数据库文件（自动创建）
 ├── templates/
@@ -52,13 +52,25 @@ export DATABASE_URL="mysql+pymysql://username:password@localhost/dbname"
 $env:DATABASE_URL="mysql+pymysql://username:password@localhost/dbname"
 ```
 
-### 3. 配置 CMS 地址
+### 3. 配置网关名称与系统地址
 
-编辑 `config.py`，设置您的 CMS 内网地址：
+编辑 `config.py`，设置网关名称、2FA 发行者名称，以及后端系统地址：
 
 ```python
-CMS_BASE_URL = 'http://cms.xxx.ht'
+GATEWAY_NAME = 'AuthGateway'
+TOTP_ISSUER_NAME = 'AuthGateway'
+
+SYSTEMS = [
+    {
+        "prefix": "cms",
+        "base_url": "http://cms.xxx.ht",
+        "name": "CMS系统"
+    }
+]
 ```
+
+- `GATEWAY_NAME`：网关在登录页、管理页等界面展示的名称
+- `TOTP_ISSUER_NAME`：2FA 令牌在验证器应用中显示的发行者名称
 
 ### 4. 运行应用
 
@@ -110,14 +122,14 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install python3 python3-pip python3-venv -y
 
 # 创建项目目录
-sudo mkdir -p /opt/AuthProxy
-sudo chown $USER:$USER /opt/AuthProxy
+sudo mkdir -p /opt/AuthGateway
+sudo chown $USER:$USER /opt/AuthGateway
 ```
 
 #### 2. 部署应用
 ```bash
-# 克隆或复制项目文件到 /opt/AuthProxy
-cd /opt/AuthProxy
+# 克隆或复制项目文件到 /opt/AuthGateway
+cd /opt/AuthGateway
 
 # 创建虚拟环境
 python3 -m venv venv
@@ -134,72 +146,29 @@ pip install gunicorn
 #### 3. 配置 systemd 服务
 ```bash
 # 复制服务文件
-sudo cp authproxy.service /etc/systemd/system/
+sudo cp authgateway.service /etc/systemd/system/
 
 # 编辑服务文件中的路径（如果需要）
-sudo nano /etc/systemd/system/authproxy.service
+sudo nano /etc/systemd/system/authgateway.service
 
 # 重新加载 systemd
 sudo systemctl daemon-reload
 
 # 启用开机自启
-sudo systemctl enable authproxy
+sudo systemctl enable authgateway
 
 # 启动服务
-sudo systemctl start authproxy
+sudo systemctl start authgateway
 ```
 
-#### 4. 配置 Nginx 反向代理
-```bash
-# 安装 Nginx
-sudo apt install nginx -y
-
-# 创建站点配置
-sudo nano /etc/nginx/sites-available/cms-2fa
-```
-
-Nginx 配置内容参考上面的示例。
-
-```bash
-# 启用站点
-sudo ln -s /etc/nginx/sites-available/cms-2fa /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-
-# 测试配置
-sudo nginx -t
-
-# 重启 Nginx
-sudo systemctl restart nginx
-```
-
-#### 5. 配置 HTTPS（使用 Let's Encrypt）
-```bash
-# 安装 Certbot
-sudo apt install certbot python3-certbot-nginx -y
-
-# 获取 SSL 证书
-sudo certbot --nginx -d your-domain.com
-
-# 自动续期（Certbot 会自动添加定时任务）
-```
-
-#### 6. 防火墙配置
-```bash
-# 允许 SSH、HTTP、HTTPS
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
-```
-
-#### 7. 验证部署
+#### 4. 验证部署
 ```bash
 # 检查服务状态
-sudo systemctl status authproxy
+sudo systemctl status authgateway
 sudo systemctl status nginx
 
 # 查看应用日志
-sudo journalctl -u authproxy -f --no-pager
+sudo journalctl -u authgateway -f --no-pager
 
 # 测试访问
 curl -I https://your-domain.com
@@ -243,7 +212,7 @@ server {
 ### 普通用户
 1. 访问网关地址 `http://your-server:5000/`
 2. 输入用户名和 TOTP 验证码
-3. 验证通过后，自动跳转到 CMS 系统
+3. 验证通过后，自动跳转到目标系统
 
 ### 管理员
 1. 访问管理地址 `http://your-server:5000/admin/login`
@@ -252,7 +221,7 @@ server {
 
 ## 注意事项
 
-- 请确保网关服务器能够访问内网 CMS
+- 请确保网关服务器能够访问内网目标系统
 - 定期更换管理员密码
 - 建议为每个用户单独配置 TOTP 密钥
 - 生产环境务必使用 HTTPS

@@ -19,14 +19,36 @@ from database import init_db
 # 日志配置
 if Config.LOG_ENABLED:
     os.makedirs(Config.LOG_DIR, exist_ok=True)
+    
+    # 配置根日志记录器
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(Config.LOG_FILE, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
+        handlers=[]
     )
+    
+    # 所有级别日志处理器
+    file_handler = logging.FileHandler(Config.LOG_FILE, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    
+    # 错误日志处理器 (WARNING及以上)
+    error_file_handler = logging.FileHandler(Config.ERROR_LOG_FILE, encoding='utf-8')
+    error_file_handler.setLevel(logging.WARNING)
+    error_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    
+    # 控制台输出处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    
+    # 获取根记录器并添加处理器
+    root_logger = logging.getLogger()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(error_file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # 应用日志记录器
     logger = logging.getLogger(__name__)
 else:
     logger = None
@@ -34,6 +56,13 @@ else:
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = Config.SECRET_KEY
+
+
+@app.context_processor
+def inject_gateway_config():
+    return {
+        'gateway_name': app.config['GATEWAY_NAME']
+    }
 
 @app.before_request
 def log_request():
@@ -46,6 +75,27 @@ def log_request():
 
 # 初始化数据库
 init_db(app)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """全局异常处理"""
+    if logger:
+        logger.error(f"未处理异常: {str(e)}", exc_info=True)
+    return "服务器内部错误", 500
+
+@app.errorhandler(404)
+def handle_404(e):
+    """404 错误处理"""
+    if logger:
+        logger.warning(f"404 错误 - 路径: {request.path}")
+    return "页面不存在", 404
+
+@app.errorhandler(500)
+def handle_500(e):
+    """500 错误处理"""
+    if logger:
+        logger.error(f"500 错误 - 路径: {request.path}, 错误: {str(e)}", exc_info=True)
+    return "服务器内部错误", 500
 
 def find_system_by_prefix(prefix):
     """根据路径前缀查找系统配置"""
@@ -249,7 +299,11 @@ def create_user():
         flash(f'子管理员 {username} 创建成功', 'success')
         return redirect(url_for('admin'))
     else:
-        qr_base64, _ = generate_qr_code(username, user_data['totp_secret'])
+        qr_base64, _ = generate_qr_code(
+            username,
+            user_data['totp_secret'],
+            app.config['TOTP_ISSUER_NAME']
+        )
         flash(f'用户 {username} 创建成功', 'success')
         return render_template('admin.html', 
                              users=get_all_users(),
@@ -291,7 +345,11 @@ def reset_totp(username):
     new_secret = generate_totp_secret()
     update_user(username, {'totp_secret': new_secret})
     
-    qr_base64, _ = generate_qr_code(username, new_secret)
+    qr_base64, _ = generate_qr_code(
+        username,
+        new_secret,
+        app.config['TOTP_ISSUER_NAME']
+    )
     
     return jsonify({
         'success': True,
@@ -328,96 +386,93 @@ def proxy(prefix, path):
         target_url += '?' + request.query_string.decode('utf-8')
     
     try:
-        headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'content-length']}
+        headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'content-length', 'cookie']}
+        headers['X-Forwarded-For'] = request.remote_addr or ''
         cms_host = urlparse(system['base_url']).netloc
         headers['Host'] = cms_host
         
-        # 手动处理重定向，最多跟随3次
-        max_redirects = 3
+        if request.method == 'GET':
+            resp = requests.get(target_url, headers=headers, timeout=30, allow_redirects=False)
+        elif request.method == 'POST':
+            resp = requests.post(target_url, headers=headers, data=request.get_data(), timeout=30, allow_redirects=False)
+        elif request.method == 'PUT':
+            resp = requests.put(target_url, headers=headers, data=request.get_data(), timeout=30, allow_redirects=False)
+        elif request.method == 'DELETE':
+            resp = requests.delete(target_url, headers=headers, timeout=30, allow_redirects=False)
+        else:
+            resp = requests.request(request.method, target_url, headers=headers, data=request.get_data(), timeout=30, allow_redirects=False)
+        
         redirect_count = 0
-        
-        while redirect_count < max_redirects:
-            if request.method == 'GET':
-                resp = requests.get(target_url, headers=headers, cookies=request.cookies, timeout=30, allow_redirects=False)
-            elif request.method == 'POST':
-                resp = requests.post(target_url, headers=headers, data=request.get_data(), cookies=request.cookies, timeout=30, allow_redirects=False)
-            elif request.method == 'PUT':
-                resp = requests.put(target_url, headers=headers, data=request.get_data(), cookies=request.cookies, timeout=30, allow_redirects=False)
-            elif request.method == 'DELETE':
-                resp = requests.delete(target_url, headers=headers, cookies=request.cookies, timeout=30, allow_redirects=False)
+        while resp.status_code in [301, 302, 303, 307, 308] and redirect_count < 3:
+            redirect_count += 1
+            location = resp.headers.get('Location', '')
+            if not location:
+                break
+            if logger:
+                logger.debug(f"重定向 {redirect_count}: status={resp.status_code}, Location={location}")
+            
+            parsed_location = urlparse(location)
+            parsed_system = urlparse(system['base_url'])
+            
+            if parsed_location.netloc:
+                if parsed_location.netloc == parsed_system.netloc:
+                    new_path = parsed_location.path
+                    new_location = f'/{prefix}{new_path}' if new_path.startswith('/') else f'/{prefix}/{new_path}'
+                    if parsed_location.query:
+                        new_location += f'?{parsed_location.query}'
+                    if logger:
+                        logger.debug(f"同域重写: {location} -> {new_location}")
+                    return redirect(new_location)
+                else:
+                    if logger:
+                        logger.debug(f"外部URL重定向: {location}")
+                    return redirect(location)
             else:
-                resp = requests.request(request.method, target_url, headers=headers, data=request.get_data(), cookies=request.cookies, timeout=30, allow_redirects=False)
-            
-            # 检查是否是重定向响应
-            if resp.status_code in [301, 302, 303, 307, 308]:
-                location = resp.headers.get('Location', '')
+                new_path = location
+                new_location = f'/{prefix}{new_path}' if new_path.startswith('/') else f'/{prefix}/{new_path}'
                 if logger:
-                    logger.debug(f"重定向响应: status={resp.status_code}, Location={location}")
-                if location:
-                    parsed_location = urlparse(location)
-                    parsed_system = urlparse(system['base_url'])
-                    
-                    if parsed_location.netloc:
-                        if parsed_location.netloc == parsed_system.netloc:
-                            # 同一系统的绝对URL，重写路径
-                            new_path = parsed_location.path
-                            if new_path.startswith('/'):
-                                new_location = f'/{prefix}{new_path}'
-                            else:
-                                new_location = f'/{prefix}/{new_path}'
-                            if parsed_location.query:
-                                new_location += f'?{parsed_location.query}'
-                            if logger:
-                                logger.debug(f"同一系统重定向: {location} -> {new_location}")
-                            return redirect(new_location)
-                        else:
-                            # 外部URL，直接重定向
-                            if logger:
-                                logger.debug(f"外部URL重定向: {location}")
-                            return redirect(location)
-                    else:
-                        # 相对路径，添加前缀
-                        if location.startswith('/'):
-                            new_location = f'/{prefix}{location}'
-                        else:
-                            new_location = f'/{prefix}/{location}'
-                        if logger:
-                            logger.debug(f"相对路径重定向: {location} -> {new_location}")
-                        return redirect(new_location)
-            
-            # 不是重定向，处理响应
-            content = resp.content
-            
-            # 如果是 HTML 或 CSS 响应，重写资源路径
-            content_type = resp.headers.get('Content-Type', '')
-            if 'text/html' in content_type:
-                try:
-                    content_str = content.decode('utf-8')
-                    content = rewrite_html_content(content_str, prefix).encode('utf-8')
-                except Exception as e:
-                    pass
-            elif 'text/css' in content_type:
-                try:
-                    content_str = content.decode('utf-8')
-                    content = rewrite_html_content(content_str, prefix, is_css=True).encode('utf-8')
-                except Exception as e:
-                    pass
-            
-            response = make_response(content, resp.status_code)
-            
-            # 处理响应头
-            for key, value in resp.headers.items():
-                key_lower = key.lower()
-                if key_lower in ['content-encoding', 'transfer-encoding', 'content-length', 'connection', 'location']:
-                    continue
-                response.headers[key] = value
-            
-            return response
+                    logger.debug(f"相对路径: {location} -> {new_location}")
+                return redirect(new_location)
         
-        return '重定向次数过多', 502
+        if redirect_count >= 3:
+            return '重定向次数过多', 502
+        
+        content = resp.content
+        
+        content_type = resp.headers.get('Content-Type', '')
+        if 'text/html' in content_type:
+            try:
+                content = rewrite_html_content(content.decode('utf-8'), prefix).encode('utf-8')
+            except:
+                pass
+        elif 'text/css' in content_type:
+            try:
+                content = rewrite_html_content(content.decode('utf-8'), prefix, is_css=True).encode('utf-8')
+            except:
+                pass
+        
+        response = make_response(content, resp.status_code)
+        
+        for key, value in resp.headers.items():
+            key_lower = key.lower()
+            if key_lower in ['content-encoding', 'transfer-encoding', 'content-length', 'connection', 'location']:
+                continue
+            response.headers[key] = value
+        
+        return response
         
     except requests.exceptions.RequestException as e:
-        return f'无法连接到系统: {str(e)}', 502
+        error_msg = f"无法连接到系统: {str(e)}"
+        if logger:
+            logger.error(error_msg, exc_info=True)
+        return error_msg, 502
 
 if __name__ == '__main__':
-    app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
+    if logger:
+        logger.info(f"服务启动 - 监听地址: {Config.HOST}:{Config.PORT}, 调试模式: {Config.DEBUG}")
+    try:
+        app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
+    except Exception as e:
+        if logger:
+            logger.error(f"服务启动失败: {str(e)}", exc_info=True)
+        raise

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CMS 访问认证</title>
+    <title>{{ gateway_name }} 认证</title>
     <style>
         * {
             margin: 0;
@@ -142,7 +142,7 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>CMS 访问认证</h1>
+            <h1>{{ gateway_name }} 认证</h1>
             <p>请输入您的账号信息</p>
         </div>
         
@@ -167,12 +167,12 @@
         </form>
         
         <div class="back-link">
-            <a href="/admin/login">管理员登录</a>
+            <a href="/admin/login">管理登录</a>
         </div>
         
         <div class="info-box">
             <h3>使用说明</h3>
-            <p>请使用您的用户名和身份验证器应用生成的6位验证码登录。验证码每30秒更新一次。</p>
+            <p>请使用您的用户名和身份验证器应用生成的6位动态码登录。动态码每30秒更新一次。</p>
         </div>
     </div>
 </body>

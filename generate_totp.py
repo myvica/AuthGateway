@@ -3,10 +3,13 @@ import qrcode
 from io import BytesIO
 import base64
 
+from config import Config
+
 def generate_totp_secret():
     return pyotp.random_base32()
 
-def generate_qr_code(username, secret, issuer="CMS-2FA"):
+def generate_qr_code(username, secret, issuer=None):
+    issuer = issuer or Config.TOTP_ISSUER_NAME
     totp = pyotp.TOTP(secret)
     provisioning_uri = totp.provisioning_uri(
         name=username,

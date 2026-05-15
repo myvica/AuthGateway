@@ -2,7 +2,9 @@ import os
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-change-this-in-production'
-    
+    GATEWAY_NAME = os.environ.get('GATEWAY_NAME') or 'AuthGateway'
+    TOTP_ISSUER_NAME = os.environ.get('TOTP_ISSUER_NAME') or GATEWAY_NAME
+
     # 多系统配置
     SYSTEMS = [
         {
@@ -14,12 +16,13 @@ class Config:
     
     SESSION_TIMEOUT = 3600
     
-    DEBUG = True
+    DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
     
     # 日志配置
     LOG_ENABLED = True
     LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-    LOG_FILE = os.path.join(LOG_DIR, 'proxy.log')
+    LOG_FILE = os.path.join(LOG_DIR, 'app.log')
+    ERROR_LOG_FILE = os.path.join(LOG_DIR, 'error.log')
     
     # 服务配置
     HOST = '0.0.0.0'
