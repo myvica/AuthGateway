@@ -23,6 +23,7 @@ class Config:
     LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
     LOG_FILE = os.path.join(LOG_DIR, 'app.log')
     ERROR_LOG_FILE = os.path.join(LOG_DIR, 'error.log')
+    LOGIN_LOG_FILE = os.path.join(LOG_DIR, 'login.log')
     
     # 服务配置
     HOST = '0.0.0.0'
@@ -46,3 +47,8 @@ class Config:
         project_dir = os.path.dirname(os.path.abspath(__file__))
         abs_db_path = os.path.join(project_dir, db_path)
         SQLALCHEMY_DATABASE_URI = f'sqlite:///{abs_db_path}'
+    
+    # 登录通知配置
+    NOTIFICATION_ENABLED = os.environ.get('NOTIFICATION_ENABLED', 'False').lower() in ('true', '1', 'yes')
+    # 企业微信 Webhook 地址
+    WECHAT_WEBHOOK_URL = os.environ.get('WECHAT_WEBHOOK_URL', '')

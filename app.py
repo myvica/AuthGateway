@@ -16,6 +16,7 @@ from users import (
 from generate_totp import generate_totp_secret, generate_qr_code
 from captcha import generate_captcha_text, generate_captcha_image
 from database import init_db
+from notification import send_login_notification
 
 if Config.LOG_ENABLED:
     os.makedirs(Config.LOG_DIR, exist_ok=True)
@@ -71,6 +72,32 @@ def login_required(f):
             return redirect(url_for('user_login'))
         return f(*args, **kwargs)
     return decorated_function
+
+def log_login_event(username, success=True, message='', request=None):
+    """记录登录事件"""
+    if not Config.LOG_ENABLED or not login_logger:
+        return
+    
+    if not success:
+        return
+    
+    client_ip = 'unknown'
+    user_agent = 'unknown'
+    accept_language = 'unknown'
+    
+    if request:
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown')
+        if client_ip and ',' in client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+        
+        user_agent = request.headers.get('User-Agent', 'unknown')
+        accept_language = request.headers.get('Accept-Language', 'unknown')
+        
+        if len(user_agent) > 200:
+            user_agent = user_agent[:200] + '...'
+    
+    log_message = f"{username} | {client_ip} | {user_agent} | {accept_language} | {message}"
+    login_logger.info(log_message)
 
 def is_authenticated():
     return 'username' in session and session.get('totp_verified')
@@ -164,6 +191,10 @@ def verify_totp():
             if totp.verify(totp_code, valid_window=1):
                 session['totp_verified'] = True
                 flash('动态码验证成功', 'success')
+                # 记录登录日志
+                log_login_event(username=session['username'], success=True, message='2FA 验证成功', request=request)
+                # 发送登录通知
+                send_login_notification(username=session['username'], request=request, success=True, message='2FA 验证成功')
                 return redirect(url_for('systems'))
             else:
                 flash('动态码错误', 'error')

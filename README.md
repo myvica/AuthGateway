@@ -13,10 +13,15 @@ AuthGateway/
 ├── users.py               # 用户管理接口
 ├── captcha.py             # 图形验证码生成
 ├── generate_totp.py       # TOTP 密钥生成工具
+├── notification.py        # 登录通知（企业微信 Webhook）
 ├── requirements.txt       # Python 依赖
 ├── authgateway.service    # systemd 服务文件（生产环境）
 ├── data/
 │   └── auth.db            # SQLite 数据库文件（自动创建）
+├── logs/
+│   ├── app.log            # 应用日志
+│   ├── error.log          # 错误日志
+│   └── login.log          # 登录日志
 ├── templates/
 │   ├── login.html         # 普通用户登录页面
 │   ├── admin_login.html   # 管理员登录页面
@@ -72,6 +77,16 @@ SYSTEMS = [
 - `GATEWAY_NAME`：网关在登录页、管理页等界面展示的名称
 - `TOTP_ISSUER_NAME`：2FA 令牌在验证器应用中显示的发行者名称
 
+### 3.1 配置登录通知（可选）
+
+支持通过企业微信 Webhook 推送登录成功通知：
+
+```python
+# config.py 或环境变量
+NOTIFICATION_ENABLED = True
+WECHAT_WEBHOOK_URL = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY'
+```
+
 ### 4. 运行应用
 
 ```bash
@@ -86,7 +101,7 @@ python app.py
 
 ### 管理员登录
 
-访问 `http://your-server:5000/admin/login`
+访问 `http://your-server:5000/admin_login`
 
 默认管理员账户：
 - 用户名：`admin`
@@ -105,9 +120,9 @@ python app.py
 
 访问 `http://your-server:5000/`
 
-普通用户只需输入：
-- 用户名
-- TOTP 验证码（通过 Google Authenticator 等应用获取）
+普通用户需完成两步验证：
+1. 输入用户名、密码和验证码
+2. 输入 TOTP 动态码（通过 Google Authenticator 等应用获取）
 
 ## 部署建议
 
@@ -203,20 +218,21 @@ server {
 - [ ] IP 白名单限制
 - [ ] 登录速率限制（防止暴力破解）
 - [ ] 会话超时自动登出
-- [ ] 登录日志记录
-- [ ] 登录通知（2FA登录成功后推送通知）
+- [x] 登录日志记录
+- [x] 登录通知（2FA登录成功后推送通知）
 - [ ] 登录失败告警
 
 ## 使用流程
 
 ### 普通用户
 1. 访问网关地址 `http://your-server:5000/`
-2. 输入用户名和 TOTP 验证码
-3. 验证通过后，自动跳转到目标系统
+2. 输入用户名、密码和验证码
+3. 输入 TOTP 动态码完成二次验证
+4. 验证通过后，选择并跳转到目标系统
 
 ### 管理员
-1. 访问管理地址 `http://your-server:5000/admin/login`
-2. 输入用户名、密码和图形验证码
+1. 访问管理地址 `http://your-server:5000/admin_login`
+2. 输入用户名和密码
 3. 验证通过后，进入用户管理后台
 
 ## 注意事项
