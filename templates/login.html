@@ -3,40 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ gateway_name }} 认证</title>
+    <title>{{ gateway_name or config.GATEWAY_NAME }} 认证</title>
     <link rel="stylesheet" href="/static/css/login.css">
 </head>
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>{{ gateway_name }} 认证</h1>
+            <h1>{{ gateway_name or config.GATEWAY_NAME }} 认证</h1>
             <p>请输入您的账号信息</p>
         </div>
-        
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="error-message">
+            {% for category, message in messages %}
+            <div>{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
         {% if error %}
         <div class="error-message">
             {{ error }}
         </div>
         {% endif %}
-        
+
         <form method="POST" action="/">
             <div class="form-group">
                 <label for="username">用户名</label>
                 <input type="text" id="username" name="username" placeholder="请输入用户名" required>
             </div>
-            
+
             <div class="form-group">
                 <label for="totp_code">动态码</label>
-                <input type="text" id="totp_code" name="totp_code" placeholder="请输入6位动态码" maxlength="6" pattern="[0-9]{6}" required>
+                <input type="text" id="totp_code" name="totp_code" placeholder="请输入6位动态码" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" required>
             </div>
-            
+
             <button type="submit" class="btn-login">登录</button>
         </form>
-        
+
         <div class="back-link">
             <a href="/admin/login">管理登录</a>
         </div>
-        
+
         <div class="info-box">
             <h3>使用说明</h3>
             <p>请使用您的用户名和身份验证器应用生成的6位动态码登录。动态码每30秒更新一次。</p>

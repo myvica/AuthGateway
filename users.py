@@ -1,18 +1,12 @@
 from models import db, User
-from flask import current_app
 
-def get_user(username):
+def get_user(username=None, user_id=None):
     """获取用户信息"""
-    user = User.query.filter_by(username=username).first()
-    if user:
-        return {
-            'username': user.username,
-            'name': user.name,
-            'totp_secret': user.totp_secret,
-            'is_admin': user.is_admin,
-            'is_super_admin': user.is_super_admin
-        }
-    return None
+    if user_id is not None:
+        return User.query.filter_by(id=user_id).first()
+    if username is None:
+        return None
+    return User.query.filter_by(username=username).first()
 
 def verify_password(username, password):
     """验证用户密码"""
@@ -31,22 +25,18 @@ def is_super_admin(username):
     user = User.query.filter_by(username=username).first()
     return user is not None and user.is_super_admin
 
-def add_user(username, user_data):
+def add_user(username, password, totp_secret=None, name='', is_admin=False, is_super_admin=False):
     """添加新用户"""
-    is_admin = user_data.get('is_admin', False)
-    is_super_admin = user_data.get('is_super_admin', False)
-    
     user = User(
         username=username,
-        name=user_data.get('name', ''),
-        totp_secret=user_data.get('totp_secret'),
+        name=name,
+        totp_secret=totp_secret,
         is_admin=is_admin,
         is_super_admin=is_super_admin
     )
-    
+
     # 管理员必须设置密码
     if is_admin or is_super_admin:
-        password = user_data.get('password', '')
         if not password:
             raise ValueError('管理员必须设置密码')
         user.set_password(password)
@@ -56,10 +46,15 @@ def add_user(username, user_data):
     
     db.session.add(user)
     db.session.commit()
+    return True
 
-def update_user(username, user_data):
+def update_user(username_or_id, **user_data):
     """更新用户信息"""
-    user = User.query.filter_by(username=username).first()
+    if isinstance(username_or_id, int):
+        user = User.query.filter_by(id=username_or_id).first()
+    else:
+        user = User.query.filter_by(username=username_or_id).first()
+
     if not user:
         return False
     
@@ -97,6 +92,7 @@ def get_all_users():
     result = {}
     for user in users:
         result[user.username] = {
+            'id': user.id,
             'username': user.username,
             'name': user.name,
             'totp_secret': user.totp_secret,
