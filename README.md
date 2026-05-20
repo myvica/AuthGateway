@@ -7,7 +7,7 @@
 ```
 AuthGateway/
 ├── app.py                 # 主应用文件
-├── config.py              # 配置文件（含数据库配置）
+├── config.py              # 配置文件（含数据库、通知配置）
 ├── database.py            # 数据库初始化
 ├── models.py              # SQLAlchemy 数据模型
 ├── users.py               # 用户管理接口
@@ -22,6 +22,9 @@ AuthGateway/
 │   ├── app.log            # 应用日志
 │   ├── error.log          # 错误日志
 │   └── login.log          # 登录日志
+├── static/
+│   ├── css/               # 样式文件
+│   └── js/                # 脚本文件
 ├── templates/
 │   ├── login.html         # 普通用户登录页面
 │   ├── admin_login.html   # 管理员登录页面
@@ -101,7 +104,7 @@ python app.py
 
 ### 管理员登录
 
-访问 `http://your-server:5000/admin_login`
+访问 `http://your-server:5000/admin/login`（或 `/admin_login`）
 
 默认管理员账户：
 - 用户名：`admin`
@@ -112,17 +115,22 @@ python app.py
 
 在管理后台可以：
 - 查看所有用户列表
-- 添加新用户（自动生成 TOTP 密钥和二维码）
+- 新增用户（自动生成 TOTP 密钥和二维码）
+- 新增子管理员（使用密码登录，无需 TOTP）
 - 重置用户 TOTP 密钥
+- 修改用户姓名
+- 修改子管理员密码
 - 删除用户
 
 ### 普通用户登录
 
-访问 `http://your-server:5000/`
+访问 `http://your-server:5000/`（或 `/login`）
 
-普通用户需完成两步验证：
-1. 输入用户名、密码和验证码
-2. 输入 TOTP 动态码（通过 Google Authenticator 等应用获取）
+普通用户只需输入：
+- 用户名
+- TOTP 动态码（通过 Google Authenticator 等应用获取）
+
+验证通过后进入系统选择页面，选择目标系统后自动代理跳转。
 
 ## 部署建议
 
@@ -226,14 +234,60 @@ server {
 
 ### 普通用户
 1. 访问网关地址 `http://your-server:5000/`
-2. 输入用户名、密码和验证码
-3. 输入 TOTP 动态码完成二次验证
-4. 验证通过后，选择并跳转到目标系统
+2. 输入用户名和 TOTP 动态码
+3. 验证通过后进入系统选择页面
+4. 选择目标系统，自动代理跳转
 
 ### 管理员
-1. 访问管理地址 `http://your-server:5000/admin_login`
-2. 输入用户名和密码
+1. 访问管理地址 `http://your-server:5000/admin/login`
+2. 输入用户名、密码和图形验证码
 3. 验证通过后，进入用户管理后台
+
+## 常见问题
+
+### 如何重置内置管理员密码？
+
+内置管理员（`admin`）密码初始为 `admin123`，如果忘记密码可通过以下方式重置：
+
+**方式一：删除数据库重建（适用于 SQLite）**
+
+```bash
+# 停止服务
+sudo systemctl stop authgateway
+
+# 删除数据库文件
+rm /opt/AuthGateway/data/auth.db
+
+# 重启服务，会自动重建数据库和默认管理员
+sudo systemctl start authgateway
+```
+
+> 注意：此方式会丢失所有用户数据，请谨慎操作。
+
+**方式二：使用 Python 脚本重置密码**
+
+```bash
+cd /opt/AuthGateway
+source venv/bin/activate
+
+python3 -c "
+from app import app
+from models import db, User
+from config import Config
+
+app.app_context().push()
+
+user = User.query.filter_by(username='admin').first()
+if user:
+    user.set_password('admin123')
+    db.session.commit()
+    print('已重置 admin 密码为 admin123')
+else:
+    print('admin 用户不存在')
+"
+```
+
+此方式仅重置密码，不影响其他用户数据。
 
 ## 注意事项
 
