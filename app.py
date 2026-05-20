@@ -117,6 +117,18 @@ def get_external_host():
 def get_gateway_base(prefix):
     return f"{get_external_scheme()}://{get_external_host()}/{prefix}"
 
+
+def rewrite_root_relative_value(value, prefix):
+    if not value or not value.startswith('/'):
+        return value
+    if value.startswith(f'/{prefix}/') or value == f'/{prefix}' or value.startswith('//'):
+        return value
+    return f'/{prefix}{value}'
+
+
+def rewrite_root_relative_text(content_str, prefix):
+    return content_str
+
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
@@ -444,6 +456,7 @@ def proxy_request(prefix, path):
     
     try:
         headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'connection']}
+        headers['Host'] = urlparse(base_url).netloc
         headers['X-Forwarded-Host'] = get_external_host()
         headers['X-Forwarded-For'] = request.remote_addr
         headers['X-Forwarded-Proto'] = get_external_scheme()
@@ -526,6 +539,9 @@ def proxy_request(prefix, path):
         if response.status_code == 200 and 'text/html' in content_type:
             gateway_base = get_gateway_base(prefix)
             target_base = base_url
+            current_page_path = f"/{target_path}" if target_path else "/"
+            if not current_page_path.endswith('/'):
+                current_page_path = current_page_path.rsplit('/', 1)[0] + '/'
             
             def fix_paths(match):
                 attr = match.group(1)
@@ -549,7 +565,10 @@ def proxy_request(prefix, path):
                     if path_part.startswith('/') and not path_part.startswith(gateway_base):
                         return f'{attr}={quote_char}{gateway_base}{path_part}{query_part}{quote_char}'
                     elif not path_part.startswith('/') and not path_part.startswith('http') and not path_part.startswith('data:') and not path_part.startswith('#') and not path_part.startswith('mailto:') and not path_part.lower().startswith('javascript:'):
-                        new_path = f'/{path_part}{query_part}'
+                        if attr in ['src', 'data-src', 'srcset']:
+                            new_path = f'/{path_part}{query_part}'
+                        else:
+                            new_path = f'{current_page_path}{path_part}{query_part}'
                         return f'{attr}={quote_char}{gateway_base}{new_path}{quote_char}'
                 return match.group(0)
             
@@ -560,7 +579,6 @@ def proxy_request(prefix, path):
                 fix_paths,
                 content_str
             )
-
             content_str = content_str.replace(f"{target_base}/", f"{gateway_base}/")
             if target_base.startswith('http://'):
                 content_str = content_str.replace(
@@ -651,6 +669,13 @@ def proxy_request(prefix, path):
             )
             content = text_content.encode('utf-8')
             resp_headers['Content-Length'] = str(len(content))
+
+        elif response.status_code == 200 and ('application/json' in content_type or 'javascript' in content_type):
+            text_content = content.decode('utf-8', errors='replace')
+            text_content = text_content.replace('"/signalr"', f'"/{prefix}/signalr"')
+            text_content = text_content.replace("'/signalr'", f"'/{prefix}/signalr'")
+            content = text_content.encode('utf-8')
+            resp_headers['Content-Length'] = str(len(content))
         
         return Response(content, response.status_code, resp_headers)
         
@@ -682,9 +707,14 @@ def _infer_prefix_from_referer():
 
     return None
 
-
+# 特殊项目回退路由
 @app.route('/ScriptResource.axd', methods=['GET', 'POST'])
 @app.route('/WebResource.axd', methods=['GET', 'POST'])
+@app.route('/signalr', methods=['GET', 'POST'])
+@app.route('/signalr/<path:path>', methods=['GET', 'POST'])
+@app.route('/htxx/<path:path>', methods=['GET', 'POST'])
+@app.route('/jquery/<path:path>', methods=['GET', 'POST'])
+@app.route('/Statics/<path:path>', methods=['GET', 'POST'])
 @app.route('/Scripts/<path:path>', methods=['GET', 'POST'])
 @login_required
 def proxy_fallback_root_assets(path=''):
@@ -694,6 +724,12 @@ def proxy_fallback_root_assets(path=''):
 
     if request.path.startswith('/Scripts/'):
         target_path = f"Scripts/{path}"
+    elif request.path.startswith('/htxx/'):
+        target_path = f"htxx/{path}"
+    elif request.path.startswith('/jquery/'):
+        target_path = f"jquery/{path}"
+    elif request.path.startswith('/Statics/'):
+        target_path = f"Statics/{path}"
     else:
         target_path = request.path.lstrip('/')
 
