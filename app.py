@@ -102,6 +102,21 @@ def log_login_event(username, success=True, message='', request=None):
 def is_authenticated():
     return 'username' in session and session.get('totp_verified')
 
+
+def get_external_scheme():
+    return request.headers.get('X-Forwarded-Proto', request.scheme)
+
+
+def get_external_host():
+    forwarded_host = request.headers.get('X-Forwarded-Host')
+    if forwarded_host:
+        return forwarded_host.split(',')[0].strip()
+    return request.host
+
+
+def get_gateway_base(prefix):
+    return f"{get_external_scheme()}://{get_external_host()}/{prefix}"
+
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
@@ -217,34 +232,75 @@ def admin():
     return render_template('admin.html', users=users, is_super_admin=is_super_admin(session.get('username')))
 
 @app.route('/admin/add_user', methods=['POST'])
+@app.route('/admin/users', methods=['POST'])
 @login_required
 def admin_add_user():
     if not is_super_admin(session.get('username')):
         return jsonify({'success': False, 'message': '无权限'}), 403
-    
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    name = data.get('name', '')
-    
-    if not username or not password:
-        return jsonify({'success': False, 'message': '用户名和密码不能为空'})
+
+    data = request.get_json(silent=True)
+    if data:
+        username = data.get('username')
+        password = data.get('password')
+        name = data.get('name', '')
+        is_sub_admin = data.get('is_sub_admin', False)
+    else:
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        name = request.form.get('name', '').strip()
+        is_sub_admin = request.form.get('is_sub_admin', '0') == '1'
+
+    if not username or not name:
+        message = '用户名和姓名不能为空'
+        if data:
+            return jsonify({'success': False, 'message': message}), 400
+        flash(message, 'error')
+        return redirect(url_for('admin'))
+
+    if is_sub_admin and not password:
+        message = '子管理员密码不能为空'
+        if data:
+            return jsonify({'success': False, 'message': message}), 400
+        flash(message, 'error')
+        return redirect(url_for('admin'))
     
     if get_user(username):
-        return jsonify({'success': False, 'message': '用户名已存在'})
+        message = '用户名已存在'
+        if data:
+            return jsonify({'success': False, 'message': message}), 400
+        flash(message, 'error')
+        return redirect(url_for('admin'))
     
     totp_secret = generate_totp_secret()
     qr_code = generate_qr_code(username, totp_secret)
     
-    success = add_user(username, password, totp_secret, name=name)
+    success = add_user(username, password, totp_secret, name=name, is_admin=is_sub_admin)
     if success:
-        return jsonify({
-            'success': True, 
-            'message': '用户添加成功',
-            'qr_code': qr_code
-        })
+        if data:
+            return jsonify({
+                'success': True,
+                'message': '用户添加成功',
+                'qr_code': f'data:image/png;base64,{qr_code[0]}'
+            })
+
+        if is_sub_admin:
+            flash(f'子管理员 {username} 创建成功', 'success')
+            return redirect(url_for('admin'))
+
+        flash(f'用户 {username} 创建成功', 'success')
+        return render_template(
+            'admin.html',
+            users=get_all_users(),
+            is_super_admin=is_super_admin(session.get('username')),
+            new_user_qr=qr_code[0],
+            new_user_secret=totp_secret,
+            new_user_username=username
+        )
     else:
-        return jsonify({'success': False, 'message': '添加失败'})
+        if data:
+            return jsonify({'success': False, 'message': '添加失败'}), 500
+        flash('添加失败', 'error')
+        return redirect(url_for('admin'))
 
 @app.route('/admin/reset_totp/<int:user_id>', methods=['POST'])
 @login_required
@@ -269,6 +325,102 @@ def admin_reset_totp(user_id):
     else:
         return jsonify({'success': False, 'message': '重置失败'}), 500
 
+
+@app.route('/admin/users/<username>/password', methods=['PUT'])
+@login_required
+def admin_update_password(username):
+    current_username = session.get('username')
+    data = request.get_json(silent=True) or {}
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+
+    if not new_password:
+        return jsonify({'success': False, 'message': '新密码不能为空'}), 400
+
+    target_user = get_user(username)
+    if not target_user:
+        return jsonify({'success': False, 'message': '用户不存在'}), 404
+
+    if username == current_username:
+        if not verify_password(username, current_password):
+            return jsonify({'success': False, 'message': '当前密码错误'}), 400
+        if not target_user.is_admin:
+            return jsonify({'success': False, 'message': '无权限'}), 403
+    else:
+        if not is_super_admin(current_username):
+            return jsonify({'success': False, 'message': '无权限'}), 403
+        if not target_user.is_admin or target_user.is_super_admin:
+            return jsonify({'success': False, 'message': '仅可修改子管理员密码'}), 403
+
+    if not update_user(username, password=new_password):
+        return jsonify({'success': False, 'message': '修改失败'}), 500
+
+    return jsonify({'success': True, 'message': '密码修改成功'})
+
+
+@app.route('/admin/users/<username>/name', methods=['PUT'])
+@login_required
+def admin_update_name(username):
+    data = request.get_json(silent=True) or {}
+    name = data.get('name', '').strip()
+    current_username = session.get('username')
+    target_user = get_user(username)
+
+    if not name:
+        return jsonify({'error': '姓名不能为空'}), 400
+    if not target_user:
+        return jsonify({'error': '用户不存在'}), 404
+    if username != current_username and not is_super_admin(current_username):
+        return jsonify({'error': '无权限'}), 403
+
+    if not update_user(username, name=name):
+        return jsonify({'error': '修改失败'}), 500
+
+    return jsonify({'success': True})
+
+
+@app.route('/admin/users/<username>/totp', methods=['POST'])
+@login_required
+def admin_reset_totp_by_username(username):
+    if not is_super_admin(session.get('username')):
+        return jsonify({'error': '无权限'}), 403
+
+    user = get_user(username)
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+    if user.is_admin:
+        return jsonify({'error': '管理员不使用 TOTP 登录'}), 400
+
+    new_secret = generate_totp_secret()
+    if not update_user(username, totp_secret=new_secret):
+        return jsonify({'error': '重置失败'}), 500
+
+    qr_code = generate_qr_code(username, new_secret)
+    return jsonify({
+        'success': True,
+        'secret': new_secret,
+        'qr_code': f'data:image/png;base64,{qr_code[0]}'
+    })
+
+
+@app.route('/admin/users/<username>', methods=['DELETE'])
+@login_required
+def admin_delete_user(username):
+    current_username = session.get('username')
+    target_user = get_user(username)
+
+    if username == 'admin':
+        return jsonify({'error': '不能删除内置管理员'}), 400
+    if not target_user:
+        return jsonify({'error': '用户不存在'}), 404
+    if target_user.is_admin and not is_super_admin(current_username):
+        return jsonify({'error': '只有超级管理员可以删除管理员账户'}), 403
+
+    if not delete_user(username):
+        return jsonify({'error': '删除失败'}), 400
+
+    return jsonify({'success': True})
+
 def get_system_by_prefix(prefix):
     for system in Config.SYSTEMS:
         if system.get('prefix') == prefix:
@@ -292,9 +444,9 @@ def proxy_request(prefix, path):
     
     try:
         headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'connection']}
-        headers['X-Forwarded-Host'] = request.host
+        headers['X-Forwarded-Host'] = get_external_host()
         headers['X-Forwarded-For'] = request.remote_addr
-        headers['X-Forwarded-Proto'] = request.scheme
+        headers['X-Forwarded-Proto'] = get_external_scheme()
         
         if request.method in ['POST', 'PUT', 'PATCH']:
             response = requests.request(
@@ -372,7 +524,7 @@ def proxy_request(prefix, path):
         content_type = response.headers.get('Content-Type', '')
 
         if response.status_code == 200 and 'text/html' in content_type:
-            gateway_base = f"{request.scheme}://{request.host}/{prefix}"
+            gateway_base = get_gateway_base(prefix)
             target_base = base_url
             
             def fix_paths(match):
@@ -447,7 +599,7 @@ def proxy_request(prefix, path):
 
         elif response.status_code == 200 and 'text/plain' in content_type:
             text_content = content.decode('utf-8', errors='replace')
-            gateway_base = f"{request.scheme}://{request.host}/{prefix}"
+            gateway_base = get_gateway_base(prefix)
             target_base = base_url
 
             def rewrite_ajax_redirect(match):

@@ -19,7 +19,10 @@
     <div class="container">
         <div class="header">
             <h2>用户列表</h2>
-            <button class="btn btn-primary" onclick="openModal()">+ 新增账号</button>
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="openPasswordModal('{{ session.username }}', true)">修改我的密码</button>
+                <button class="btn btn-primary" onclick="openModal()">+ 新增账号</button>
+            </div>
         </div>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -81,6 +84,9 @@
                                 <span style="color: #999; font-size: 12px;">内置账户</span>
                                 {% elif user.is_admin %}
                                 <button class="btn btn-secondary btn-sm" onclick="editName('{{ username }}', '{{ user.name }}')">编辑姓名</button>
+                                {% if is_super_admin %}
+                                <button class="btn btn-secondary btn-sm" onclick="openPasswordModal('{{ username }}', false)">修改密码</button>
+                                {% endif %}
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser('{{ username }}')">删除</button>
                                 {% else %}
                                 <button class="btn btn-secondary btn-sm" onclick="editName('{{ username }}', '{{ user.name }}')">编辑姓名</button>
@@ -186,7 +192,33 @@
             </div>
         </div>
     </div>
-    
+
+    <div class="modal" id="passwordModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="passwordModalTitle">修改密码</h3>
+            </div>
+            <form id="passwordForm">
+                <div class="modal-body">
+                    <input type="hidden" id="passwordUsername" name="username">
+                    <input type="hidden" id="isSelfPasswordChange" name="is_self_password_change" value="0">
+                    <div class="form-group" id="currentPasswordGroup">
+                        <label for="currentPassword">当前密码 *</label>
+                        <input type="password" id="currentPassword" name="current_password" placeholder="请输入当前密码">
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">新密码 *</label>
+                        <input type="password" id="newPassword" name="new_password" required placeholder="请输入新密码">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closePasswordModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+     
     <script src="/static/js/admin.js"></script>
 </body>
 </html>

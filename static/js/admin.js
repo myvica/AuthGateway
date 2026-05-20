@@ -79,6 +79,20 @@ function closeEditNameModal() {
 	document.getElementById('editNameForm').reset();
 }
 
+function openPasswordModal(username, isSelf) {
+    document.getElementById('passwordUsername').value = username;
+    document.getElementById('isSelfPasswordChange').value = isSelf ? '1' : '0';
+    document.getElementById('passwordModalTitle').textContent = isSelf ? '修改我的密码' : '修改 ' + username + ' 的密码';
+    document.getElementById('currentPasswordGroup').style.display = isSelf ? 'block' : 'none';
+    document.getElementById('currentPassword').required = isSelf;
+    document.getElementById('passwordModal').classList.add('active');
+}
+
+function closePasswordModal() {
+    document.getElementById('passwordModal').classList.remove('active');
+    document.getElementById('passwordForm').reset();
+}
+
 document.getElementById('editNameForm').addEventListener('submit', function(e) {
 	e.preventDefault();
 	var username = document.getElementById('editUsername').value;
@@ -100,11 +114,45 @@ document.getElementById('editNameForm').addEventListener('submit', function(e) {
 		}
 	});
 });
-        
+
+document.getElementById('passwordForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var username = document.getElementById('passwordUsername').value;
+    var isSelf = document.getElementById('isSelfPasswordChange').value === '1';
+    var payload = {
+        new_password: document.getElementById('newPassword').value
+    };
+
+    if (isSelf) {
+        payload.current_password = document.getElementById('currentPassword').value;
+    }
+
+    fetch('/admin/users/' + username + '/password', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    }).then(function(response) {
+        if (response.ok) {
+            alert('密码修改成功');
+            closePasswordModal();
+        } else {
+            response.json().then(function(data) {
+                alert(data.message || '修改失败');
+            });
+        }
+    });
+});
+         
 document.querySelectorAll('.modal').forEach(function(modal) {
     modal.addEventListener('click', function(e) {
         if (e.target === this && this.id === 'userModal') {
             closeModal();
+        } else if (e.target === this && this.id === 'editNameModal') {
+            closeEditNameModal();
+        } else if (e.target === this && this.id === 'passwordModal') {
+            closePasswordModal();
         }
     });
 });
