@@ -119,14 +119,6 @@ def get_gateway_base(prefix):
     return f"{get_external_scheme()}://{get_external_host()}/{prefix}"
 
 
-def rewrite_root_relative_value(value, prefix):
-    if not value or not value.startswith('/'):
-        return value
-    if value.startswith(f'/{prefix}/') or value == f'/{prefix}' or value.startswith('//'):
-        return value
-    return f'/{prefix}{value}'
-
-
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
@@ -882,21 +874,39 @@ def _infer_prefix_from_referer():
 
     return None
 
-# 特殊项目回退路由
+
+def _get_fallback_prefix_or_404():
+    prefix = _infer_prefix_from_referer()
+    if not prefix:
+        return None, ("System not found", 404)
+    return prefix, None
+
+# 基础设施回退路由（ASP.NET 及 SignalR）
 @app.route('/ScriptResource.axd', methods=['GET', 'POST'])
 @app.route('/WebResource.axd', methods=['GET', 'POST'])
 @app.route('/signalr', methods=['GET', 'POST'])
 @app.route('/signalr/<path:path>', methods=['GET', 'POST'])
+@login_required
+def proxy_fallback_infrastructure_assets(path=''):
+    prefix, error = _get_fallback_prefix_or_404()
+    if error:
+        return error
+
+    target_path = request.path.lstrip('/')
+    return proxy_request(prefix, target_path)
+
+
+# 特殊项目回退路由（业务资源路径）
 @app.route('/htxx/<path:path>', methods=['GET', 'POST'])
 @app.route('/action/<path:path>', methods=['GET', 'POST'])
 @app.route('/jquery/<path:path>', methods=['GET', 'POST'])
 @app.route('/Statics/<path:path>', methods=['GET', 'POST'])
 @app.route('/Scripts/<path:path>', methods=['GET', 'POST'])
 @login_required
-def proxy_fallback_root_assets(path=''):
-    prefix = _infer_prefix_from_referer()
-    if not prefix:
-        return "System not found", 404
+def proxy_fallback_project_assets(path=''):
+    prefix, error = _get_fallback_prefix_or_404()
+    if error:
+        return error
 
     if request.path.startswith('/Scripts/'):
         target_path = f"Scripts/{path}"

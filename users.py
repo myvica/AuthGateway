@@ -3,7 +3,7 @@ from models import db, User
 def get_user(username=None, user_id=None):
     """获取用户信息"""
     if user_id is not None:
-        return User.query.filter_by(id=user_id).first()
+        return db.session.get(User, user_id)
     if username is None:
         return None
     return User.query.filter_by(username=username).first()
@@ -25,7 +25,7 @@ def is_super_admin(username):
     user = User.query.filter_by(username=username).first()
     return user is not None and user.is_super_admin
 
-def add_user(username, password, totp_secret=None, name='', is_admin=False, is_super_admin=False):
+def add_user(username, password='', totp_secret=None, name='', is_admin=False, is_super_admin=False):
     """添加新用户"""
     user = User(
         username=username,
@@ -34,41 +34,39 @@ def add_user(username, password, totp_secret=None, name='', is_admin=False, is_s
         is_admin=is_admin,
         is_super_admin=is_super_admin
     )
-
-    # 管理员必须设置密码
+    
     if is_admin or is_super_admin:
         if not password:
             raise ValueError('管理员必须设置密码')
         user.set_password(password)
     else:
-        # 普通用户设置空密码（使用TOTP验证）
         user.set_password('')
     
     db.session.add(user)
     db.session.commit()
     return True
 
-def update_user(username_or_id, **user_data):
+def update_user(identifier, password=None, totp_secret=None, name=None, is_admin=None, is_super_admin=None):
     """更新用户信息"""
-    if isinstance(username_or_id, int):
-        user = User.query.filter_by(id=username_or_id).first()
+    user = None
+    if isinstance(identifier, int):
+        user = db.session.get(User, identifier)
     else:
-        user = User.query.filter_by(username=username_or_id).first()
-
+        user = User.query.filter_by(username=identifier).first()
+    
     if not user:
         return False
     
-    # 更新字段
-    if 'name' in user_data:
-        user.name = user_data['name']
-    if 'totp_secret' in user_data:
-        user.totp_secret = user_data['totp_secret']
-    if 'is_admin' in user_data:
-        user.is_admin = user_data['is_admin']
-    if 'is_super_admin' in user_data:
-        user.is_super_admin = user_data['is_super_admin']
-    if 'password' in user_data:
-        user.set_password(user_data['password'])
+    if password is not None:
+        user.set_password(password)
+    if totp_secret is not None:
+        user.totp_secret = totp_secret
+    if name is not None:
+        user.name = name
+    if is_admin is not None:
+        user.is_admin = is_admin
+    if is_super_admin is not None:
+        user.is_super_admin = is_super_admin
     
     db.session.commit()
     return True
@@ -91,12 +89,10 @@ def get_all_users(include_super_admin=True):
     query = User.query
     if not include_super_admin:
         query = query.filter_by(is_super_admin=False)
-
     users = query.all()
     result = {}
     for user in users:
         result[user.username] = {
-            'id': user.id,
             'username': user.username,
             'name': user.name,
             'totp_secret': user.totp_secret,
