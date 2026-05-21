@@ -97,6 +97,7 @@ def get_all_users(include_super_admin=True):
             'name': user.name,
             'totp_secret': user.totp_secret,
             'is_admin': user.is_admin,
-            'is_super_admin': user.is_super_admin
+            'is_super_admin': user.is_super_admin,
+            'last_login_at': user.last_login_at.isoformat() if user.last_login_at else None
         }
     return result

@@ -1,7 +1,22 @@
 import os
 from flask import Flask
+from sqlalchemy import inspect, text
 from models import db, User
 from config import Config
+
+
+def _ensure_user_columns():
+    """为现有 users 表补齐新增列。"""
+    inspector = inspect(db.engine)
+    if 'users' not in inspector.get_table_names():
+        return
+
+    existing_columns = {column['name'] for column in inspector.get_columns('users')}
+    if 'last_login_at' in existing_columns:
+        return
+
+    db.session.execute(text('ALTER TABLE users ADD COLUMN last_login_at DATETIME NULL'))
+    db.session.commit()
 
 def init_db(app):
     """初始化数据库"""
@@ -17,6 +32,7 @@ def init_db(app):
         
         # 创建所有表
         db.create_all()
+        _ensure_user_columns()
         
         # 检查是否需要创建默认管理员
         if User.query.filter_by(username='admin').first() is None:

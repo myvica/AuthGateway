@@ -17,6 +17,8 @@ from users import (
 from generate_totp import generate_totp_secret, generate_qr_code
 from captcha import generate_captcha_text, generate_captcha_image
 from database import init_db
+from models import db
+from datetime import datetime
 from notification import send_login_notification
 
 if Config.LOG_ENABLED:
@@ -152,6 +154,9 @@ def user_login():
         session['username'] = username
         session['totp_verified'] = True
 
+        user.last_login_at = datetime.utcnow()
+        db.session.commit()
+
         log_login_event(username, success=True, message='用户动态码登录成功', request=request)
         send_login_notification(username=username, request=request, success=True, message='用户动态码登录成功')
 
@@ -190,6 +195,9 @@ def admin_login():
         session['username'] = username
         session.pop('totp_verified', None)
         session.pop('captcha_code', None)
+
+        user.last_login_at = datetime.utcnow()
+        db.session.commit()
 
         log_login_event(username, success=True, message='管理员登录成功', request=request)
 
