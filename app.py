@@ -3,11 +3,12 @@ import pyotp
 import requests
 from requests.exceptions import RequestException
 import base64
+import json
 import re
 import os
 import logging
 from functools import wraps
-from urllib.parse import urljoin, urlparse, quote, urlunparse, quote_plus
+from urllib.parse import urljoin, urlparse, quote, urlunparse, quote_plus, unquote
 from config import Config
 from users import (
     get_user, verify_password, is_admin, is_super_admin, add_user, 
@@ -126,9 +127,6 @@ def rewrite_root_relative_value(value, prefix):
     return f'/{prefix}{value}'
 
 
-def rewrite_root_relative_text(content_str, prefix):
-    return content_str
-
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def user_login():
@@ -239,9 +237,10 @@ def systems():
 def admin():
     if not is_admin(session.get('username')):
         return redirect(url_for('systems'))
-    
-    users = get_all_users()
-    return render_template('admin.html', users=users, is_super_admin=is_super_admin(session.get('username')))
+
+    current_is_super_admin = is_super_admin(session.get('username'))
+    users = get_all_users(include_super_admin=current_is_super_admin)
+    return render_template('admin.html', users=users, is_super_admin=current_is_super_admin)
 
 @app.route('/admin/add_user', methods=['POST'])
 @app.route('/admin/users', methods=['POST'])
@@ -300,10 +299,11 @@ def admin_add_user():
             return redirect(url_for('admin'))
 
         flash(f'用户 {username} 创建成功', 'success')
+        current_is_super_admin = is_super_admin(session.get('username'))
         return render_template(
             'admin.html',
-            users=get_all_users(),
-            is_super_admin=is_super_admin(session.get('username')),
+            users=get_all_users(include_super_admin=current_is_super_admin),
+            is_super_admin=current_is_super_admin,
             new_user_qr=qr_code[0],
             new_user_secret=totp_secret,
             new_user_username=username
@@ -332,7 +332,7 @@ def admin_reset_totp(user_id):
         return jsonify({
             'success': True,
             'message': 'TOTP 已重置',
-            'qr_code': new_qr_code
+            'qr_code': f'data:image/png;base64,{new_qr_code[0]}'
         })
     else:
         return jsonify({'success': False, 'message': '重置失败'}), 500
@@ -439,6 +439,164 @@ def get_system_by_prefix(prefix):
             return system
     return None
 
+
+def _normalize_host(host):
+    if not host:
+        return ''
+    return host.split(':', 1)[0].strip().lower().rstrip('.')
+
+
+def _is_allowed_attachment_host(system, host):
+    normalized_host = _normalize_host(host)
+    if not normalized_host:
+        return False
+
+    allowed_hosts = system.get('attachment_hosts') or []
+    for rule in allowed_hosts:
+        normalized_rule = _normalize_host(rule)
+        if not normalized_rule:
+            continue
+        if normalized_host == normalized_rule or normalized_host.endswith(f".{normalized_rule}"):
+            return True
+    return False
+
+
+def _build_ext_proxy_url(prefix, full_url):
+    return f"{get_external_scheme()}://{get_external_host()}/{prefix}/__ext__/{quote(full_url, safe='')}"
+
+
+def _is_base_target_host(system, host):
+    base_url = (system or {}).get('base_url', '')
+    if not base_url:
+        return False
+    base_host = _normalize_host(urlparse(base_url).netloc)
+    target_host = _normalize_host(host)
+    return bool(base_host and target_host and base_host == target_host)
+
+
+def _resolve_external_url(raw_url, base_url):
+    if not raw_url:
+        return None
+
+    candidate = raw_url.strip()
+    if not candidate:
+        return None
+
+    if candidate.startswith('//'):
+        parsed_base = urlparse(base_url)
+        candidate = f"{parsed_base.scheme}:{candidate}"
+    elif not urlparse(candidate).scheme:
+        candidate = urljoin(base_url.rstrip('/') + '/', candidate)
+
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ('http', 'https'):
+        return None
+    if not parsed.netloc:
+        return None
+    return candidate
+
+
+def _rewrite_external_response_url(value, prefix, system, base_url):
+    resolved = _resolve_external_url(value, base_url)
+    if not resolved:
+        return value
+
+    parsed = urlparse(resolved)
+    if _is_base_target_host(system, parsed.netloc):
+        return value
+    if not _is_allowed_attachment_host(system, parsed.netloc):
+        return value
+
+    return _build_ext_proxy_url(prefix, resolved)
+
+
+def _rewrite_json_urls(payload, prefix, system, base_url):
+    changed = False
+
+    def visit(node):
+        nonlocal changed
+
+        if isinstance(node, dict):
+            new_node = {}
+            for key, value in node.items():
+                if isinstance(value, str) and key.lower().endswith('url'):
+                    rewritten = _rewrite_external_response_url(value, prefix, system, base_url)
+                    if rewritten != value:
+                        changed = True
+                    new_node[key] = rewritten
+                else:
+                    new_node[key] = visit(value)
+            return new_node
+
+        if isinstance(node, list):
+            return [visit(item) for item in node]
+
+        return node
+
+    return visit(payload), changed
+
+
+def _proxy_to_target_url(target_url, base_url, prefix):
+    try:
+        headers = {key: value for key, value in request.headers if key.lower() not in ['host', 'connection']}
+        headers['Host'] = urlparse(target_url).netloc
+        headers['X-Forwarded-Host'] = get_external_host()
+        headers['X-Forwarded-For'] = request.remote_addr
+        headers['X-Forwarded-Proto'] = get_external_scheme()
+
+        if request.method in ['POST', 'PUT', 'PATCH']:
+            outbound_data = request.get_data()
+            headers['Content-Length'] = str(len(outbound_data))
+            response = requests.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                params=request.args,
+                data=outbound_data,
+                cookies=request.cookies,
+                allow_redirects=False,
+                timeout=30,
+                stream=True
+            )
+        else:
+            response = requests.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                params=request.args,
+                cookies=request.cookies,
+                allow_redirects=False,
+                timeout=30,
+                stream=True
+            )
+
+        if response.status_code in [301, 302, 303, 307, 308]:
+            location = response.headers.get('Location')
+            if location:
+                resolved_location = _resolve_external_url(location, target_url)
+                if resolved_location:
+                    parsed_location = urlparse(resolved_location)
+                    system = get_system_by_prefix(prefix)
+                    if system and (not _is_base_target_host(system, parsed_location.netloc)) and _is_allowed_attachment_host(system, parsed_location.netloc):
+                        response.headers['Location'] = _build_ext_proxy_url(prefix, resolved_location)
+
+        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+        resp_headers = {
+            key: value for key, value in response.headers.items()
+            if key.lower() not in excluded_headers
+        }
+        content = response.content
+        resp_headers['Content-Length'] = str(len(content))
+        return Response(content, response.status_code, resp_headers)
+    except RequestException as e:
+        if logger:
+            logger.error(f"外链代理请求失败: {str(e)}")
+        return f"Proxy error: {str(e)}", 502
+    except Exception as e:
+        if logger:
+            logger.error(f"外链代理异常: {str(e)}")
+        return f"Proxy error: {str(e)}", 500
+
 def proxy_request(prefix, path):
     system = get_system_by_prefix(prefix)
     if not system:
@@ -462,12 +620,14 @@ def proxy_request(prefix, path):
         headers['X-Forwarded-Proto'] = get_external_scheme()
         
         if request.method in ['POST', 'PUT', 'PATCH']:
+            outbound_data = request.get_data()
+            headers['Content-Length'] = str(len(outbound_data))
             response = requests.request(
                 method=request.method,
                 url=target_url,
                 headers=headers,
                 params=request.args,
-                data=request.get_data(),
+                data=outbound_data,
                 cookies=request.cookies,
                 allow_redirects=False,
                 timeout=30,
@@ -561,7 +721,7 @@ def proxy_request(prefix, path):
                     
                     if path_part.startswith(gateway_base):
                         return match.group(0)
-                    
+
                     if path_part.startswith('/') and not path_part.startswith(gateway_base):
                         return f'{attr}={quote_char}{gateway_base}{path_part}{query_part}{quote_char}'
                     elif not path_part.startswith('/') and not path_part.startswith('http') and not path_part.startswith('data:') and not path_part.startswith('#') and not path_part.startswith('mailto:') and not path_part.lower().startswith('javascript:'):
@@ -670,10 +830,25 @@ def proxy_request(prefix, path):
             content = text_content.encode('utf-8')
             resp_headers['Content-Length'] = str(len(content))
 
-        elif response.status_code == 200 and ('application/json' in content_type or 'javascript' in content_type):
+        elif response.status_code == 200 and (
+            'application/json' in content_type or
+            'text/json' in content_type or
+            'javascript' in content_type
+        ):
             text_content = content.decode('utf-8', errors='replace')
             text_content = text_content.replace('"/signalr"', f'"/{prefix}/signalr"')
             text_content = text_content.replace("'/signalr'", f"'/{prefix}/signalr'")
+            if 'application/json' in content_type or 'text/json' in content_type:
+                try:
+                    payload = json.loads(text_content)
+                    payload, changed = _rewrite_json_urls(payload, prefix, system, target_url)
+                    if changed:
+                        if logger:
+                            logger.debug("JSON 响应中的外链 URL 已改写为 gateway ext")
+                        text_content = json.dumps(payload, ensure_ascii=False)
+                except Exception as e:
+                    if logger:
+                        logger.error(f"JSON 响应 URL 改写失败: {str(e)}")
             content = text_content.encode('utf-8')
             resp_headers['Content-Length'] = str(len(content))
         
@@ -713,6 +888,7 @@ def _infer_prefix_from_referer():
 @app.route('/signalr', methods=['GET', 'POST'])
 @app.route('/signalr/<path:path>', methods=['GET', 'POST'])
 @app.route('/htxx/<path:path>', methods=['GET', 'POST'])
+@app.route('/action/<path:path>', methods=['GET', 'POST'])
 @app.route('/jquery/<path:path>', methods=['GET', 'POST'])
 @app.route('/Statics/<path:path>', methods=['GET', 'POST'])
 @app.route('/Scripts/<path:path>', methods=['GET', 'POST'])
@@ -724,6 +900,8 @@ def proxy_fallback_root_assets(path=''):
 
     if request.path.startswith('/Scripts/'):
         target_path = f"Scripts/{path}"
+    elif request.path.startswith('/action/'):
+        target_path = f"action/{path}"
     elif request.path.startswith('/htxx/'):
         target_path = f"htxx/{path}"
     elif request.path.startswith('/jquery/'):
@@ -734,6 +912,27 @@ def proxy_fallback_root_assets(path=''):
         target_path = request.path.lstrip('/')
 
     return proxy_request(prefix, target_path)
+
+
+@app.route('/<prefix>/__ext__/<path:encoded_url>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
+@login_required
+def proxy_external_url(prefix, encoded_url):
+    system = get_system_by_prefix(prefix)
+    if not system:
+        return "System not found", 404
+
+    full_url = unquote(encoded_url)
+    if not re.match(r'^https?://', full_url, re.IGNORECASE):
+        return "Invalid external URL", 400
+
+    parsed = urlparse(full_url)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        return "Invalid external URL", 400
+
+    if not _is_allowed_attachment_host(system, parsed.netloc):
+        return "External host not allowed", 403
+
+    return _proxy_to_target_url(full_url, system.get('base_url', ''), prefix)
 
 @app.route('/<prefix>/<path:path>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
 @login_required

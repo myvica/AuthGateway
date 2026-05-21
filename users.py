@@ -86,9 +86,13 @@ def delete_user(username):
     db.session.commit()
     return True
 
-def get_all_users():
+def get_all_users(include_super_admin=True):
     """获取所有用户"""
-    users = User.query.all()
+    query = User.query
+    if not include_super_admin:
+        query = query.filter_by(is_super_admin=False)
+
+    users = query.all()
     result = {}
     for user in users:
         result[user.username] = {

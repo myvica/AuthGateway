@@ -10,7 +10,11 @@ class Config:
         {
             "prefix": "cms",
             "base_url": "http://htims.xxx.ht",
-            "name": "CMS系统"
+            "name": "CMS系统",
+            "attachment_hosts": [
+                "attch.xxx.ss",
+                "xxx.ss"
+            ]
         }
     ]
     
