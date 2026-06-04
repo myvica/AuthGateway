@@ -25,13 +25,13 @@ if Config.LOG_ENABLED:
     os.makedirs(Config.LOG_DIR, exist_ok=True)
     
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=getattr(logging, Config.LOG_LEVEL),
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[]
     )
     
     file_handler = logging.FileHandler(Config.LOG_FILE, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(getattr(logging, Config.LOG_LEVEL))
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
     error_file_handler = logging.FileHandler(Config.ERROR_LOG_FILE, encoding='utf-8')
@@ -39,7 +39,7 @@ if Config.LOG_ENABLED:
     error_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(getattr(logging, Config.LOG_LEVEL))
     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     
     login_file_handler = logging.FileHandler(Config.LOGIN_LOG_FILE, encoding='utf-8')

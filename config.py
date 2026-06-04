@@ -28,6 +28,7 @@ class Config:
     LOG_FILE = os.path.join(LOG_DIR, 'app.log')
     ERROR_LOG_FILE = os.path.join(LOG_DIR, 'error.log')
     LOGIN_LOG_FILE = os.path.join(LOG_DIR, 'login.log')
+    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
     
     # 服务配置
     HOST = '0.0.0.0'
