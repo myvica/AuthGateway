@@ -170,25 +170,24 @@ def log_login_event(username, success=True, message='', request=None):
 login_limiter = LoginRateLimiter(Config.LOGIN_MAX_ATTEMPTS, Config.LOGIN_LOCKOUT_SECONDS)
 
 
-def _login_attempt_keys(username):
-    ip = request.remote_addr or 'unknown'
-    return (f'user:{username}', f'ip:{ip}')
+def _login_ip_key():
+    return f'ip:{request.remote_addr or "unknown"}'
 
 
-def _login_blocked(username):
-    return any(login_limiter.is_blocked(key) for key in _login_attempt_keys(username))
+def _login_blocked():
+    """同 IP 失败次数达到阈值即锁定。
+
+    不按用户名维度封锁：否则任何人都能恶意刷失败把指定账号打成锁号；
+    失败计数只靠窗口自然过期、成功登录不清零，避免攻击者用自己的账号
+    边爆破边重置计数。
+    """
+    return login_limiter.is_blocked(_login_ip_key())
 
 
 def _login_failed(username, message):
-    """记录一次登录失败：按用户名与 IP 计数，并写入登录日志"""
-    for key in _login_attempt_keys(username):
-        login_limiter.record_failure(key)
+    """记录一次登录失败：按 IP 计数，并写入登录日志"""
+    login_limiter.record_failure(_login_ip_key())
     log_login_event(username, success=False, message=message, request=request)
-
-
-def _login_succeeded(username):
-    for key in _login_attempt_keys(username):
-        login_limiter.clear(key)
 
 def is_authenticated():
     return 'username' in session and session.get('totp_verified')
@@ -217,7 +216,7 @@ def user_login():
             flash('请填写用户名和动态码', 'error')
             return render_template('login.html')
 
-        if _login_blocked(username):
+        if _login_blocked():
             log_login_event(username, success=False, message='登录失败: 尝试过于频繁已被限流', request=request)
             flash('尝试次数过多，请稍后再试', 'error')
             return render_template('login.html')
@@ -249,7 +248,6 @@ def user_login():
         session['totp_verified'] = True
         session.permanent = True
         session['csrf_token'] = secrets.token_hex(32)
-        _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
         db.session.commit()
@@ -275,7 +273,7 @@ def admin_login():
         if not username or not password or not captcha_code:
             return render_template('admin_login.html', error='请填写所有字段', gateway_name=Config.GATEWAY_NAME)
 
-        if _login_blocked(username):
+        if _login_blocked():
             log_login_event(username, success=False, message='登录失败: 尝试过于频繁已被限流', request=request)
             return render_template('admin_login.html', error='尝试次数过多，请稍后再试', gateway_name=Config.GATEWAY_NAME)
 
@@ -302,7 +300,6 @@ def admin_login():
         session.pop('captcha_code', None)
         session.permanent = True
         session['csrf_token'] = secrets.token_hex(32)
-        _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
         db.session.commit()

@@ -13,11 +13,12 @@ class LoginRateLimiter:
     # 防止 key 无限增长，超过该数量时清理过期条目
     MAX_KEYS = 10000
 
-    def __init__(self, max_attempts, window_seconds):
+    def __init__(self, max_attempts, window_seconds, clock=time.monotonic):
         self.max_attempts = max_attempts
         self.window = window_seconds
         self._attempts = defaultdict(deque)
         self._lock = threading.Lock()
+        self._clock = clock  # 可注入假时钟便于测试
 
     def is_blocked(self, key):
         with self._lock:
@@ -27,7 +28,7 @@ class LoginRateLimiter:
     def record_failure(self, key):
         with self._lock:
             self._prune(key)
-            self._attempts[key].append(time.monotonic())
+            self._attempts[key].append(self._clock())
             if len(self._attempts) > self.MAX_KEYS:
                 self._sweep()
 
@@ -36,7 +37,7 @@ class LoginRateLimiter:
             self._attempts.pop(key, None)
 
     def _prune(self, key):
-        now = time.monotonic()
+        now = self._clock()
         queue = self._attempts[key]
         while queue and now - queue[0] > self.window:
             queue.popleft()
