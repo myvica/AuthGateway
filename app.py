@@ -1056,3 +1056,7 @@ def _rewrite_css_url(raw_value, prefix):
     if quote:
         return f"url({quote}{new_value}{quote})"
     return f"url({new_value})"
+
+
+if __name__ == '__main__':
+    app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
