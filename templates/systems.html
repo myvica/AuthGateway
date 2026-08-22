@@ -14,8 +14,11 @@
         </div>
         
         <div class="user-info">
-            <span>欢迎，{{ username }}</span>
-            <a href="/logout" class="logout-link">退出登录</a>
+            <span>欢迎，{{ session.username }}</span>
+            <form method="POST" action="/logout" class="logout-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="logout-link">退出登录</button>
+            </form>
         </div>
         
         <div class="system-list">

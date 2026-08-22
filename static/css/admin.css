@@ -34,6 +34,26 @@ body {
     opacity: 1;
 }
 
+.navbar .nav-links .nav-logout {
+    display: inline;
+    margin-left: 20px;
+}
+
+.navbar .nav-links .nav-logout button {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: white;
+    text-decoration: none;
+    opacity: 0.9;
+    cursor: pointer;
+}
+
+.navbar .nav-links .nav-logout button:hover {
+    opacity: 1;
+}
+
 .container {
     max-width: 1200px;
     margin: 30px auto;

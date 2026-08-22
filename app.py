@@ -342,8 +342,14 @@ def admin_captcha():
 def verify_totp():
     return redirect(url_for('user_login'))
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 def logout():
+    # 升级前的旧会话没有 csrf_token，直接放行登出
+    token = session.get('csrf_token')
+    if token:
+        sent = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token')
+        if not sent or not secrets.compare_digest(token, sent):
+            return 'CSRF 校验失败，请刷新页面后重试', 403
     session.clear()
     return redirect(url_for('user_login'))
 
