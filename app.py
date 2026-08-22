@@ -21,6 +21,7 @@ from models import db
 from datetime import datetime
 from notification import send_login_notification
 from werkzeug.middleware.proxy_fix import ProxyFix
+from rate_limit import LoginRateLimiter
 
 if Config.LOG_ENABLED:
     os.makedirs(Config.LOG_DIR, exist_ok=True)
@@ -105,6 +106,30 @@ def log_login_event(username, success=True, message='', request=None):
     log_message = f"{username} | {client_ip} | {user_agent} | {accept_language} | {message}"
     login_logger.info(log_message)
 
+
+login_limiter = LoginRateLimiter(Config.LOGIN_MAX_ATTEMPTS, Config.LOGIN_LOCKOUT_SECONDS)
+
+
+def _login_attempt_keys(username):
+    ip = request.remote_addr or 'unknown'
+    return (f'user:{username}', f'ip:{ip}')
+
+
+def _login_blocked(username):
+    return any(login_limiter.is_blocked(key) for key in _login_attempt_keys(username))
+
+
+def _login_failed(username, message):
+    """记录一次登录失败：按用户名与 IP 计数，并写入登录日志"""
+    for key in _login_attempt_keys(username):
+        login_limiter.record_failure(key)
+    log_login_event(username, success=False, message=message, request=request)
+
+
+def _login_succeeded(username):
+    for key in _login_attempt_keys(username):
+        login_limiter.clear(key)
+
 def is_authenticated():
     return 'username' in session and session.get('totp_verified')
 
@@ -132,27 +157,37 @@ def user_login():
             flash('请填写用户名和动态码', 'error')
             return render_template('login.html')
 
+        if _login_blocked(username):
+            log_login_event(username, success=False, message='登录失败: 尝试过于频繁已被限流', request=request)
+            flash('尝试次数过多，请稍后再试', 'error')
+            return render_template('login.html')
+
         if is_admin(username):
+            _login_failed(username, '登录失败: 管理员账号不允许在此登录')
             flash('管理员请通过管理后台登录', 'error')
             return render_template('login.html')
 
         user = get_user(username)
         if not user:
+            _login_failed(username, '登录失败: 用户名不存在或不允许登录')
             flash('用户名不存在或不允许登录', 'error')
             return render_template('login.html')
 
         totp_secret = user.totp_secret
         if not totp_secret:
+            _login_failed(username, '登录失败: 用户未配置动态码')
             flash('当前用户未配置动态码', 'error')
             return render_template('login.html')
 
         totp = pyotp.TOTP(totp_secret)
         if not totp.verify(totp_code, valid_window=1):
+            _login_failed(username, '登录失败: 动态码错误或已过期')
             flash('动态码错误或已过期', 'error')
             return render_template('login.html')
 
         session['username'] = username
         session['totp_verified'] = True
+        _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
         db.session.commit()
@@ -178,23 +213,32 @@ def admin_login():
         if not username or not password or not captcha_code:
             return render_template('admin_login.html', error='请填写所有字段', gateway_name=Config.GATEWAY_NAME)
 
+        if _login_blocked(username):
+            log_login_event(username, success=False, message='登录失败: 尝试过于频繁已被限流', request=request)
+            return render_template('admin_login.html', error='尝试次数过多，请稍后再试', gateway_name=Config.GATEWAY_NAME)
+
         if session.get('captcha_code', '').upper() != captcha_code.upper():
             session.pop('captcha_code', None)
+            _login_failed(username, '管理员登录失败: 图形验证码错误')
             return render_template('admin_login.html', error='图形验证码错误', gateway_name=Config.GATEWAY_NAME)
 
         if not is_admin(username):
+            _login_failed(username, '管理员登录失败: 非管理员账号')
             return render_template('admin_login.html', error='用户名或密码错误', gateway_name=Config.GATEWAY_NAME)
 
         user = get_user(username)
         if not user:
+            _login_failed(username, '管理员登录失败: 用户名不存在')
             return render_template('admin_login.html', error='用户名或密码错误', gateway_name=Config.GATEWAY_NAME)
 
         if not verify_password(username, password):
+            _login_failed(username, '管理员登录失败: 密码错误')
             return render_template('admin_login.html', error='用户名或密码错误', gateway_name=Config.GATEWAY_NAME)
 
         session['username'] = username
         session.pop('totp_verified', None)
         session.pop('captcha_code', None)
+        _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
         db.session.commit()

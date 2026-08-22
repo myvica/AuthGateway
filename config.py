@@ -19,6 +19,10 @@ class Config:
     ]
     
     SESSION_TIMEOUT = 3600
+
+    # 登录限流：窗口期内失败次数达到阈值后锁定（按用户名与 IP 分别计数）
+    LOGIN_MAX_ATTEMPTS = int(os.environ.get('LOGIN_MAX_ATTEMPTS', '5'))
+    LOGIN_LOCKOUT_SECONDS = int(os.environ.get('LOGIN_LOCKOUT_SECONDS', '900'))
     
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
     
