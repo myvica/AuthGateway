@@ -146,6 +146,20 @@ def csrf_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# 登录日志字段中的控制字符（换行/回车/ANSI 转义等）统一替换为空格，防日志注入
+_CONTROL_CHARS = re.compile(r'[\x00-\x1f\x7f]+')
+
+
+def sanitize_log_field(value, max_len=200):
+    """过滤攻击者可控字段中的控制字符并截断，防止日志被注入伪造"""
+    if not value:
+        return value
+    cleaned = _CONTROL_CHARS.sub(' ', str(value)).strip()
+    if len(cleaned) > max_len:
+        return cleaned[:max_len] + '...'
+    return cleaned
+
+
 def log_login_event(username, success=True, message='', request=None):
     """记录登录事件（成功与失败均记录）"""
     if not Config.LOG_ENABLED or not login_logger:
@@ -160,10 +174,13 @@ def log_login_event(username, success=True, message='', request=None):
         user_agent = request.headers.get('User-Agent', 'unknown')
         accept_language = request.headers.get('Accept-Language', 'unknown')
 
-        if len(user_agent) > 200:
-            user_agent = user_agent[:200] + '...'
-    
-    log_message = f"{username} | {client_ip} | {user_agent} | {accept_language} | {message}"
+    log_message = (
+        f"{sanitize_log_field(username, 100)} | "
+        f"{sanitize_log_field(client_ip, 100)} | "
+        f"{sanitize_log_field(user_agent, 200)} | "
+        f"{sanitize_log_field(accept_language, 100)} | "
+        f"{message}"
+    )
     login_logger.info(log_message)
 
 

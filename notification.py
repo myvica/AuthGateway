@@ -78,8 +78,9 @@ def send_login_notification(username, request, success=True, message=''):
     result, msg = send_wechat_notification(username, client_ip, user_agent, message or '2FA 验证成功')
     
     # 记录日志
-    from app import logger
+    from app import logger, sanitize_log_field
     if logger:
+        username = sanitize_log_field(username, 100)
         if result:
             logger.info(f"[{username}] {msg}")
         else:
