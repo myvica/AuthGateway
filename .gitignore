@@ -219,3 +219,5 @@ __marimo__/
 
 # AuthGateway 运行时密钥（自动生成，勿提交）
 data/secret_key
+data/secret_key.lock
+data/test.db
