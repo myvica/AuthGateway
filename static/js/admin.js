@@ -54,10 +54,10 @@ function deleteUser(username) {
                 window.location.reload();
             } else {
                 response.json().then(function(data) {
-                    alert(data.error || '删除失败');
-                });
+                    alert(data.error || data.message || '删除失败');
+                }).catch(function() { alert('删除失败'); });
             }
-        });
+        }).catch(function() { alert('网络错误，请稍后重试'); });
     }
 }
 
@@ -66,13 +66,19 @@ function resetTotp(username) {
         fetch('/admin/users/' + username + '/totp', {
             method: 'POST',
             headers: { 'X-CSRF-Token': getCsrfToken() }
-        }).then(function(response) { return response.json(); })
-        .then(function(data) {
-            document.getElementById('qrCodeContainer').innerHTML =
-                '<img src="' + data.qr_code + '" alt="QR Code">';
-            document.getElementById('secretKey').textContent = data.secret;
-            document.getElementById('totpModal').classList.add('active');
-        });
+        }).then(function(response) {
+            if (!response.ok) {
+                return response.json().then(function(data) {
+                    alert(data.error || data.message || '重置失败');
+                }).catch(function() { alert('重置失败'); });
+            }
+            return response.json().then(function(data) {
+                document.getElementById('qrCodeContainer').innerHTML =
+                    '<img src="' + data.qr_code + '" alt="QR Code">';
+                document.getElementById('secretKey').textContent = data.secret;
+                document.getElementById('totpModal').classList.add('active');
+            });
+        }).catch(function() { alert('网络错误，请稍后重试'); });
     }
 }
 function editName(username, currentName) {
@@ -117,10 +123,10 @@ document.getElementById('editNameForm').addEventListener('submit', function(e) {
 			window.location.reload();
 		} else {
 			response.json().then(data => {
-				alert(data.error || '修改失败');
-			});
+				alert(data.error || data.message || '修改失败');
+			}).catch(() => alert('修改失败'));
 		}
-	});
+	}).catch(() => alert('网络错误，请稍后重试'));
 });
 
 document.getElementById('passwordForm').addEventListener('submit', function(e) {
@@ -148,10 +154,10 @@ document.getElementById('passwordForm').addEventListener('submit', function(e) {
             closePasswordModal();
         } else {
             response.json().then(function(data) {
-                alert(data.message || '修改失败');
-            });
+                alert(data.message || data.error || '修改失败');
+            }).catch(function() { alert('修改失败'); });
         }
-    });
+    }).catch(function() { alert('网络错误，请稍后重试'); });
 });
          
 document.querySelectorAll('.modal').forEach(function(modal) {
