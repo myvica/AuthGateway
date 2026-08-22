@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AuthGateway 运行时密钥（自动生成，勿提交）
+data/secret_key

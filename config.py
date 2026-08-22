@@ -1,8 +1,58 @@
 import os
+import secrets
+import time
 from datetime import timedelta
 
+
+def _load_or_create_secret_key():
+    """优先读 SECRET_KEY 环境变量；未设置时自动生成随机密钥并持久化到 data/secret_key。
+
+    持久化保证 gunicorn 多 worker 与服务重启后密钥一致；使用独占创建避免
+    并发 worker 同时写坏文件。密钥文件不应提交进仓库。
+    """
+    env_key = os.environ.get('SECRET_KEY')
+    if env_key:
+        return env_key
+
+    key_file = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'data', 'secret_key'
+    )
+
+    def _read():
+        with open(key_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+
+    try:
+        if os.path.exists(key_file):
+            existing = _read()
+            if existing:
+                return existing
+
+        os.makedirs(os.path.dirname(key_file), exist_ok=True)
+        new_key = secrets.token_hex(32)
+        fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(new_key)
+        print(f'警告: 未设置 SECRET_KEY 环境变量，已自动生成随机密钥并保存到 {key_file}，'
+              f'生产环境建议通过环境变量显式配置')
+        return new_key
+    except FileExistsError:
+        # 另一个 worker 刚创建文件，稍等重读
+        for _ in range(20):
+            time.sleep(0.05)
+            try:
+                existing = _read()
+                if existing:
+                    return existing
+            except OSError:
+                pass
+        raise RuntimeError(f'读取自动生成的密钥文件失败: {key_file}')
+    except OSError as e:
+        raise RuntimeError(f'无法读取或创建 {key_file}，请显式设置 SECRET_KEY 环境变量: {e}')
+
+
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-change-this-in-production'
+    SECRET_KEY = _load_or_create_secret_key()
     GATEWAY_NAME = os.environ.get('GATEWAY_NAME') or 'AuthGateway'
     TOTP_ISSUER_NAME = os.environ.get('TOTP_ISSUER_NAME') or GATEWAY_NAME
 

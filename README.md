@@ -164,6 +164,9 @@ pip install gunicorn
 
 # 配置应用（可选：设置 MariaDB 连接）
 # export DATABASE_URL="mysql+pymysql://user:password@localhost/dbname"
+
+# 配置会话密钥（推荐；不设置时首次启动会自动生成随机密钥并保存到 data/secret_key）
+# export SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 ```
 
 #### 3. 配置 systemd 服务
