@@ -187,6 +187,7 @@ def user_login():
 
         session['username'] = username
         session['totp_verified'] = True
+        session.permanent = True
         _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
@@ -238,6 +239,7 @@ def admin_login():
         session['username'] = username
         session.pop('totp_verified', None)
         session.pop('captcha_code', None)
+        session.permanent = True
         _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()

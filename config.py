@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-change-this-in-production'
@@ -19,6 +20,9 @@ class Config:
     ]
     
     SESSION_TIMEOUT = 3600
+    # 会话过期时间（滑动过期：每次请求刷新），登录成功后设置 session.permanent 生效
+    PERMANENT_SESSION_LIFETIME = timedelta(seconds=SESSION_TIMEOUT)
+    SESSION_COOKIE_SAMESITE = 'Lax'
 
     # 登录限流：窗口期内失败次数达到阈值后锁定（按用户名与 IP 分别计数）
     LOGIN_MAX_ATTEMPTS = int(os.environ.get('LOGIN_MAX_ATTEMPTS', '5'))
