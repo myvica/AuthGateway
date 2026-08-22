@@ -176,21 +176,21 @@ def admin_login():
         captcha_code = request.form.get('captcha_code', '').strip()
 
         if not username or not password or not captcha_code:
-            return render_template('admin_login.html', error='请填写所有字段')
+            return render_template('admin_login.html', error='请填写所有字段', gateway_name=Config.GATEWAY_NAME)
 
         if session.get('captcha_code', '').upper() != captcha_code.upper():
             session.pop('captcha_code', None)
-            return render_template('admin_login.html', error='图形验证码错误')
+            return render_template('admin_login.html', error='图形验证码错误', gateway_name=Config.GATEWAY_NAME)
 
         if not is_admin(username):
-            return render_template('admin_login.html', error='用户名或密码错误')
+            return render_template('admin_login.html', error='用户名或密码错误', gateway_name=Config.GATEWAY_NAME)
 
         user = get_user(username)
         if not user:
-            return render_template('admin_login.html', error='用户名或密码错误')
+            return render_template('admin_login.html', error='用户名或密码错误', gateway_name=Config.GATEWAY_NAME)
 
         if not verify_password(username, password):
-            return render_template('admin_login.html', error='用户名或密码错误')
+            return render_template('admin_login.html', error='用户名或密码错误', gateway_name=Config.GATEWAY_NAME)
 
         session['username'] = username
         session.pop('totp_verified', None)
@@ -203,7 +203,7 @@ def admin_login():
 
         return redirect(url_for('admin'))
 
-    return render_template('admin_login.html')
+    return render_template('admin_login.html', gateway_name=Config.GATEWAY_NAME)
 
 @app.route('/admin/captcha')
 def admin_captcha():
@@ -240,7 +240,7 @@ def admin():
 
     current_is_super_admin = is_super_admin(session.get('username'))
     users = get_all_users(include_super_admin=current_is_super_admin)
-    return render_template('admin.html', users=users, is_super_admin=current_is_super_admin)
+    return render_template('admin.html', users=users, is_super_admin=current_is_super_admin, gateway_name=Config.GATEWAY_NAME)
 
 @app.route('/admin/add_user', methods=['POST'])
 @app.route('/admin/users', methods=['POST'])
@@ -304,6 +304,7 @@ def admin_add_user():
             'admin.html',
             users=get_all_users(include_super_admin=current_is_super_admin),
             is_super_admin=current_is_super_admin,
+            gateway_name=Config.GATEWAY_NAME,
             new_user_qr=qr_code[0],
             new_user_secret=totp_secret,
             new_user_username=username
