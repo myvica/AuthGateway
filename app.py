@@ -3,6 +3,7 @@ import pyotp
 import requests
 from requests.exceptions import RequestException
 import base64
+import ipaddress
 import json
 import re
 import os
@@ -66,16 +67,58 @@ else:
     logger = None
     login_logger = None
 
+class TrustedProxyFix:
+    """仅当直连对端为可信代理（TRUSTED_PROXIES）时启用 ProxyFix 解析转发头。
+
+    直连客户端本身就是"第一跳"，可以完全控制 X-Forwarded-* 头的内容，
+    因此对端不在白名单时必须剥离这些头，否则来源 IP 可被伪造绕过限流。
+    """
+
+    FORWARDED_HEADERS = (
+        'HTTP_X_FORWARDED_FOR',
+        'HTTP_X_FORWARDED_PROTO',
+        'HTTP_X_FORWARDED_HOST',
+        'HTTP_X_FORWARDED_PORT',
+        'HTTP_X_FORWARDED_PREFIX',
+    )
+
+    def __init__(self, wsgi_app):
+        self._wsgi_app = wsgi_app
+        self._proxy_fix = ProxyFix(
+            wsgi_app,
+            x_for=Config.PROXY_COUNT,
+            x_proto=Config.PROXY_COUNT,
+            x_host=Config.PROXY_COUNT,
+        )
+
+    def __call__(self, environ, start_response):
+        if self._peer_is_trusted(environ.get('REMOTE_ADDR')):
+            return self._proxy_fix(environ, start_response)
+        for header in self.FORWARDED_HEADERS:
+            environ.pop(header, None)
+        return self._wsgi_app(environ, start_response)
+
+    @staticmethod
+    def _peer_is_trusted(peer):
+        if not peer:
+            return False
+        try:
+            addr = ipaddress.ip_address(peer)
+        except ValueError:
+            return False
+        for network in Config.TRUSTED_PROXIES:
+            try:
+                if addr in network:
+                    return True
+            except TypeError:
+                continue
+        return False
+
+
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# 前置代理层由 PROXY_COUNT 控制，超出信任层数的转发头会被忽略，防止直连时伪造
-app.wsgi_app = ProxyFix(
-    app.wsgi_app,
-    x_for=Config.PROXY_COUNT,
-    x_proto=Config.PROXY_COUNT,
-    x_host=Config.PROXY_COUNT
-)
+app.wsgi_app = TrustedProxyFix(app.wsgi_app)
 
 init_db(app)
 

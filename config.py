@@ -1,7 +1,22 @@
 import os
+import ipaddress
 import secrets
 import time
 from datetime import timedelta
+
+
+def _parse_trusted_proxies(raw):
+    """解析 TRUSTED_PROXIES（逗号分隔，支持单 IP 与 CIDR），无效条目告警忽略"""
+    networks = []
+    for item in raw.split(','):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            print(f'警告: TRUSTED_PROXIES 中的无效条目已忽略: {item}')
+    return networks
 
 
 def _load_or_create_secret_key():
@@ -93,6 +108,9 @@ class Config:
     PORT = 5000
     # 前置可信代理层数（如 nginx 为 1），用于 ProxyFix 解析真实客户端 IP/协议/主机名
     PROXY_COUNT = int(os.environ.get('PROXY_COUNT', '1'))
+    # 可信反向代理地址：仅当直连对端命中该列表时才采信 X-Forwarded-* 头，
+    # 其余来源的转发头一律剥离，防止直连客户端伪造来源 IP 绕过限流
+    TRUSTED_PROXIES = _parse_trusted_proxies(os.environ.get('TRUSTED_PROXIES', '127.0.0.1,::1'))
     
     # 数据库配置
     # 默认使用 SQLite，可通过环境变量切换到 MariaDB/MySQL
