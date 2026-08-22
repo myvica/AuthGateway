@@ -6,6 +6,7 @@ import base64
 import json
 import re
 import os
+import secrets
 import logging
 from functools import wraps
 from urllib.parse import urljoin, urlparse, quote, urlunparse, quote_plus, unquote
@@ -78,11 +79,27 @@ app.wsgi_app = ProxyFix(
 
 init_db(app)
 
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': session.get('csrf_token', '')}
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'username' not in session:
             return redirect(url_for('user_login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def csrf_required(f):
+    """管理端写操作 CSRF 校验：接受 X-CSRF-Token 头或表单 csrf_token 字段"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = session.get('csrf_token')
+        sent = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+        if not token or not sent or not secrets.compare_digest(token, sent):
+            message = 'CSRF 校验失败，请刷新页面后重试'
+            return jsonify({'success': False, 'error': message, 'message': message}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -188,6 +205,7 @@ def user_login():
         session['username'] = username
         session['totp_verified'] = True
         session.permanent = True
+        session['csrf_token'] = secrets.token_hex(32)
         _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
@@ -240,6 +258,7 @@ def admin_login():
         session.pop('totp_verified', None)
         session.pop('captcha_code', None)
         session.permanent = True
+        session['csrf_token'] = secrets.token_hex(32)
         _login_succeeded(username)
 
         user.last_login_at = datetime.utcnow()
@@ -291,6 +310,7 @@ def admin():
 @app.route('/admin/add_user', methods=['POST'])
 @app.route('/admin/users', methods=['POST'])
 @login_required
+@csrf_required
 def admin_add_user():
     if not is_super_admin(session.get('username')):
         return jsonify({'success': False, 'message': '无权限'}), 403
@@ -363,6 +383,7 @@ def admin_add_user():
 
 @app.route('/admin/reset_totp/<int:user_id>', methods=['POST'])
 @login_required
+@csrf_required
 def admin_reset_totp(user_id):
     if not is_super_admin(session.get('username')):
         return jsonify({'success': False, 'message': '无权限'}), 403
@@ -387,6 +408,7 @@ def admin_reset_totp(user_id):
 
 @app.route('/admin/users/<username>/password', methods=['PUT'])
 @login_required
+@csrf_required
 def admin_update_password(username):
     current_username = session.get('username')
     data = request.get_json(silent=True) or {}
@@ -419,6 +441,7 @@ def admin_update_password(username):
 
 @app.route('/admin/users/<username>/name', methods=['PUT'])
 @login_required
+@csrf_required
 def admin_update_name(username):
     data = request.get_json(silent=True) or {}
     name = data.get('name', '').strip()
@@ -440,6 +463,7 @@ def admin_update_name(username):
 
 @app.route('/admin/users/<username>/totp', methods=['POST'])
 @login_required
+@csrf_required
 def admin_reset_totp_by_username(username):
     if not is_super_admin(session.get('username')):
         return jsonify({'error': '无权限'}), 403
@@ -464,6 +488,7 @@ def admin_reset_totp_by_username(username):
 
 @app.route('/admin/users/<username>', methods=['DELETE'])
 @login_required
+@csrf_required
 def admin_delete_user(username):
     current_username = session.get('username')
     target_user = get_user(username)

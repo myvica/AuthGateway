@@ -39,10 +39,16 @@ function closeTotpModal() {
     window.location.reload();
 }
 
+function getCsrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.content : '';
+}
+
 function deleteUser(username) {
     if (confirm('确定要删除用户 ' + username + ' 吗？此操作不可恢复。')) {
         fetch('/admin/users/' + username, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': getCsrfToken() }
         }).then(function(response) {
             if (response.ok) {
                 window.location.reload();
@@ -58,7 +64,8 @@ function deleteUser(username) {
 function resetTotp(username) {
     if (confirm('确定要重置 ' + username + ' 的 TOTP 密钥吗？用户需要重新配置验证器。')) {
         fetch('/admin/users/' + username + '/totp', {
-            method: 'POST'
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCsrfToken() }
         }).then(function(response) { return response.json(); })
         .then(function(data) {
             document.getElementById('qrCodeContainer').innerHTML =
@@ -101,7 +108,8 @@ document.getElementById('editNameForm').addEventListener('submit', function(e) {
 	fetch('/admin/users/' + username + '/name', {
 		method: 'PUT',
 		headers: {
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			'X-CSRF-Token': getCsrfToken()
 		},
 		body: JSON.stringify({ name: name })
 	}).then(response => {
@@ -130,7 +138,8 @@ document.getElementById('passwordForm').addEventListener('submit', function(e) {
     fetch('/admin/users/' + username + '/password', {
         method: 'PUT',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken()
         },
         body: JSON.stringify(payload)
     }).then(function(response) {
