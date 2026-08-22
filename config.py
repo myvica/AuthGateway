@@ -33,6 +33,8 @@ class Config:
     # 服务配置
     HOST = '0.0.0.0'
     PORT = 5000
+    # 前置可信代理层数（如 nginx 为 1），用于 ProxyFix 解析真实客户端 IP/协议/主机名
+    PROXY_COUNT = int(os.environ.get('PROXY_COUNT', '1'))
     
     # 数据库配置
     # 默认使用 SQLite，可通过环境变量切换到 MariaDB/MySQL

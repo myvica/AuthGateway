@@ -67,12 +67,9 @@ def send_login_notification(username, request, success=True, message=''):
     
     client_ip = 'unknown'
     user_agent = 'unknown'
-    
+
     if request:
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown')
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()
-        
+        client_ip = request.remote_addr or 'unknown'
         user_agent = request.headers.get('User-Agent', 'unknown')
         if len(user_agent) > 200:
             user_agent = user_agent[:200] + '...'

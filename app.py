@@ -11,7 +11,7 @@ from functools import wraps
 from urllib.parse import urljoin, urlparse, quote, urlunparse, quote_plus, unquote
 from config import Config
 from users import (
-    get_user, verify_password, is_admin, is_super_admin, add_user, 
+    get_user, verify_password, is_admin, is_super_admin, add_user,
     update_user, delete_user, get_all_users
 )
 from generate_totp import generate_totp_secret, generate_qr_code
@@ -20,6 +20,7 @@ from database import init_db
 from models import db
 from datetime import datetime
 from notification import send_login_notification
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 if Config.LOG_ENABLED:
     os.makedirs(Config.LOG_DIR, exist_ok=True)
@@ -66,6 +67,14 @@ else:
 app = Flask(__name__)
 app.config.from_object(Config)
 
+# 前置代理层由 PROXY_COUNT 控制，超出信任层数的转发头会被忽略，防止直连时伪造
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=Config.PROXY_COUNT,
+    x_proto=Config.PROXY_COUNT,
+    x_host=Config.PROXY_COUNT
+)
+
 init_db(app)
 
 def login_required(f):
@@ -77,25 +86,19 @@ def login_required(f):
     return decorated_function
 
 def log_login_event(username, success=True, message='', request=None):
-    """记录登录事件"""
+    """记录登录事件（成功与失败均记录）"""
     if not Config.LOG_ENABLED or not login_logger:
         return
-    
-    if not success:
-        return
-    
+
     client_ip = 'unknown'
     user_agent = 'unknown'
     accept_language = 'unknown'
-    
+
     if request:
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown')
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()
-        
+        client_ip = request.remote_addr or 'unknown'
         user_agent = request.headers.get('User-Agent', 'unknown')
         accept_language = request.headers.get('Accept-Language', 'unknown')
-        
+
         if len(user_agent) > 200:
             user_agent = user_agent[:200] + '...'
     
@@ -107,13 +110,10 @@ def is_authenticated():
 
 
 def get_external_scheme():
-    return request.headers.get('X-Forwarded-Proto', request.scheme)
+    return request.scheme
 
 
 def get_external_host():
-    forwarded_host = request.headers.get('X-Forwarded-Host')
-    if forwarded_host:
-        return forwarded_host.split(',')[0].strip()
     return request.host
 
 
